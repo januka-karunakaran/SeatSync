@@ -55,28 +55,29 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>
  * Owned by Member 01 (TCP Socket Programming & Desktop Client).
  */
+@SuppressWarnings("serial")
 public class BookingFrame extends JFrame implements ClientMessageHandler.Listener {
 
     private static final long serialVersionUID = 1L;
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
 
-    private final TcpClient tcpClient;
+    private final transient TcpClient tcpClient;
     private final String username;
     private final String userId;
     private final String showId;
 
     // Track bookings initiated by this client session: seatId -> bookingId
-    private final Map<String, String> userBookings = new ConcurrentHashMap<>();
+    private final transient Map<String, String> userBookings = new ConcurrentHashMap<>();
 
     // UI Components
-    private SeatGridPanel seatGridPanel;
-    private JLabel lblSelectedSeat;
-    private JLabel lblConnectionStatus;
-    private ThemedButton btnBook;
-    private ThemedButton btnCancel;
-    private ThemedButton btnRefresh;
-    private ThemedButton btnLogout;
-    private JTextArea logArea;
+    private transient SeatGridPanel seatGridPanel;
+    private transient JLabel lblSelectedSeat;
+    private transient JLabel lblConnectionStatus;
+    private transient ThemedButton btnBook;
+    private transient ThemedButton btnCancel;
+    private transient ThemedButton btnRefresh;
+    private transient ThemedButton btnLogout;
+    private transient JTextArea logArea;
 
     /**
      * Constructs the BookingFrame window.

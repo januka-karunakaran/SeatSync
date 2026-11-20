@@ -15,6 +15,7 @@ import java.awt.Insets;
  * <p>
  * Owned by Member 01 (TCP Socket Programming & Desktop Client).
  */
+@SuppressWarnings("serial")
 public class ThemedButton extends JButton {
 
     private static final long serialVersionUID = 1L;
@@ -23,8 +24,8 @@ public class ThemedButton extends JButton {
     private static final Color DISABLED_FG = new Color(97, 97, 97);
     private static final Color DISABLED_BORDER = new Color(189, 189, 189);
 
-    private Color normalBg;
-    private Color normalFg;
+    private transient Color normalBg;
+    private transient Color normalFg;
 
     public ThemedButton(String text, Color normalBg, Color normalFg) {
         super(text);

@@ -39,16 +39,17 @@ import java.util.concurrent.TimeUnit;
  * <p>
  * Owned by Member 01 (TCP Socket Programming & Desktop Client).
  */
+@SuppressWarnings("serial")
 public class LoginFrame extends JFrame {
 
     private static final long serialVersionUID = 1L;
 
-    private final JTextField txtHost;
-    private final JTextField txtPort;
-    private final JTextField txtUsername;
-    private final JPasswordField txtPassword;
-    private final ThemedButton btnLogin;
-    private final JLabel lblStatus;
+    private final transient JTextField txtHost;
+    private final transient JTextField txtPort;
+    private final transient JTextField txtUsername;
+    private final transient JPasswordField txtPassword;
+    private final transient ThemedButton btnLogin;
+    private final transient JLabel lblStatus;
 
     /**
      * Constructs the LoginFrame with default connection parameters.

@@ -31,6 +31,7 @@ import java.util.function.Consumer;
  * <p>
  * Owned by Member 01 (TCP Socket Programming & Desktop Client).
  */
+@SuppressWarnings("serial")
 public class SeatGridPanel extends JPanel {
 
     private static final long serialVersionUID = 1L;
@@ -44,9 +45,9 @@ public class SeatGridPanel extends JPanel {
     private static final Font FONT_SEAT = new Font("Segoe UI", Font.BOLD, 12);
     private static final Font FONT_SCREEN = new Font("Segoe UI", Font.BOLD, 14);
 
-    private final Map<String, JButton> seatButtons = new LinkedHashMap<>(40);
-    private final Map<String, SeatView> seatViews = new LinkedHashMap<>(40);
-    private final List<Consumer<String>> selectionListeners = new CopyOnWriteArrayList<>();
+    private final transient Map<String, JButton> seatButtons = new LinkedHashMap<>(40);
+    private final transient Map<String, SeatView> seatViews = new LinkedHashMap<>(40);
+    private final transient List<Consumer<String>> selectionListeners = new CopyOnWriteArrayList<>();
 
     private String currentUserId;
     private String selectedSeatId;

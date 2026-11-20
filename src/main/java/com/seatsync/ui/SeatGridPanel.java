@@ -88,13 +88,17 @@ public class SeatGridPanel extends JPanel {
     }
 
     private JButton createSeatButton(String seatId) {
-        JButton btn = new JButton(seatId);
+        JButton btn = new JButton();
+        btn.setUI(new javax.swing.plaf.basic.BasicButtonUI());
         btn.setFont(FONT_SEAT);
         btn.setFocusPainted(false);
-        btn.setMargin(new Insets(6, 6, 6, 6));
-        btn.setPreferredSize(new Dimension(56, 44));
+        btn.setOpaque(true);
+        btn.setContentAreaFilled(true);
+        btn.setMargin(new Insets(2, 2, 2, 2));
+        btn.setPreferredSize(new Dimension(60, 48));
         btn.setBackground(COLOR_AVAILABLE);
         btn.setForeground(Color.WHITE);
+        btn.setText("<html><center><b>" + seatId + "</b><br><small style='font-size:9px'>Open</small></center></html>");
         btn.setToolTipText("Seat " + seatId + " - Available");
 
         btn.addActionListener(e -> selectSeat(seatId));
@@ -205,19 +209,27 @@ public class SeatGridPanel extends JPanel {
             boolean isBooked = view != null && view.status() == SeatStatus.BOOKED;
             boolean isMine = isBooked && currentUserId != null && currentUserId.equals(view.bookedBy());
 
+            btn.setUI(new javax.swing.plaf.basic.BasicButtonUI());
+            btn.setOpaque(true);
+            btn.setContentAreaFilled(true);
+
             if (isSelected) {
+                btn.setText("<html><center><b>" + seatId + "</b><br><small style='font-size:9px'>Selected</small></center></html>");
                 btn.setBackground(COLOR_SELECTED);
                 btn.setForeground(Color.BLACK);
                 btn.setBorder(BorderFactory.createLineBorder(Color.BLACK, 2));
             } else if (isMine) {
+                btn.setText("<html><center><b>" + seatId + "</b><br><small style='font-size:9px'>Mine</small></center></html>");
                 btn.setBackground(COLOR_MY_BOOKING);
                 btn.setForeground(Color.WHITE);
                 btn.setBorder(BorderFactory.createLineBorder(Color.WHITE, 1));
             } else if (isBooked) {
+                btn.setText("<html><center><b>" + seatId + "</b><br><small style='font-size:9px'>Booked</small></center></html>");
                 btn.setBackground(COLOR_BOOKED);
                 btn.setForeground(Color.WHITE);
                 btn.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY, 1));
             } else {
+                btn.setText("<html><center><b>" + seatId + "</b><br><small style='font-size:9px'>Open</small></center></html>");
                 btn.setBackground(COLOR_AVAILABLE);
                 btn.setForeground(Color.WHITE);
                 btn.setBorder(BorderFactory.createLineBorder(Color.WHITE, 1));
@@ -227,6 +239,7 @@ public class SeatGridPanel extends JPanel {
             String ownerText = isMine ? " (You)" : (isBooked && view.bookedBy() != null ? " (" + view.bookedBy() + ")" : "");
             String statusText = isBooked ? "Booked" + ownerText : "Available";
             btn.setToolTipText("Seat " + seatId + " - " + statusText);
+            btn.repaint();
         }
     }
 

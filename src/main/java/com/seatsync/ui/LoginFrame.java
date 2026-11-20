@@ -39,8 +39,8 @@ import java.util.concurrent.TimeUnit;
  * <p>
  * Owned by Member 01 (TCP Socket Programming & Desktop Client).
  */
-@SuppressWarnings("serial")
-public class LoginFrame extends JFrame {
+@SuppressWarnings({"serial", "this-escape"})
+public final class LoginFrame extends JFrame {
 
     private static final long serialVersionUID = 1L;
 
@@ -57,6 +57,7 @@ public class LoginFrame extends JFrame {
      * @param defaultHost Initial server host
      * @param defaultPort Initial server port
      */
+    @SuppressWarnings("this-escape")
     public LoginFrame(String defaultHost, int defaultPort) {
         super("SeatSync - Cinema Ticket Booking Login");
 

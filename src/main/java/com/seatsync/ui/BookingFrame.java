@@ -55,8 +55,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>
  * Owned by Member 01 (TCP Socket Programming & Desktop Client).
  */
-@SuppressWarnings("serial")
-public class BookingFrame extends JFrame implements ClientMessageHandler.Listener {
+@SuppressWarnings({"serial", "this-escape"})
+public final class BookingFrame extends JFrame implements ClientMessageHandler.Listener {
 
     private static final long serialVersionUID = 1L;
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
@@ -86,6 +86,7 @@ public class BookingFrame extends JFrame implements ClientMessageHandler.Listene
      * @param username  Authenticated client username
      * @param userId    Authenticated client user ID
      */
+    @SuppressWarnings("this-escape")
     public BookingFrame(TcpClient tcpClient, String username, String userId) {
         this(tcpClient, username, userId, ProtocolConstants.DEFAULT_SHOW_ID);
     }
@@ -98,6 +99,7 @@ public class BookingFrame extends JFrame implements ClientMessageHandler.Listene
      * @param userId    Authenticated client user ID
      * @param showId    Target cinema show ID
      */
+    @SuppressWarnings("this-escape")
     public BookingFrame(TcpClient tcpClient, String username, String userId, String showId) {
         super("SeatSync - Cinema Seat Reservation (" + username + ")");
         this.tcpClient = tcpClient;

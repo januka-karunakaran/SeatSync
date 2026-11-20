@@ -31,8 +31,8 @@ import java.util.function.Consumer;
  * <p>
  * Owned by Member 01 (TCP Socket Programming & Desktop Client).
  */
-@SuppressWarnings("serial")
-public class SeatGridPanel extends JPanel {
+@SuppressWarnings({"serial", "this-escape"})
+public final class SeatGridPanel extends JPanel {
 
     private static final long serialVersionUID = 1L;
 
@@ -52,6 +52,7 @@ public class SeatGridPanel extends JPanel {
     private String currentUserId;
     private String selectedSeatId;
 
+    @SuppressWarnings("this-escape")
     public SeatGridPanel() {
         setLayout(new BorderLayout(10, 15));
         setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));

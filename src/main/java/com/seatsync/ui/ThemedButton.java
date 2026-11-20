@@ -15,7 +15,7 @@ import java.awt.Insets;
  * <p>
  * Owned by Member 01 (TCP Socket Programming & Desktop Client).
  */
-@SuppressWarnings("serial")
+@SuppressWarnings({"serial", "this-escape"})
 public class ThemedButton extends JButton {
 
     private static final long serialVersionUID = 1L;

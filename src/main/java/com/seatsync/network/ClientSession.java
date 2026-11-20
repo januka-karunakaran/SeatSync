@@ -163,6 +163,11 @@ public class ClientSession implements RequestContext {
                     continue;
                 }
 
+                // Strip optional leading UTF-8 BOM (\uFEFF)
+                if (line.startsWith("\uFEFF")) {
+                    line = line.substring(1);
+                }
+
                 // Strip optional trailing \r (CRLF support)
                 if (line.endsWith("\r")) {
                     line = line.substring(0, line.length() - 1);

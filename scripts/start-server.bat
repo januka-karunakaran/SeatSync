@@ -17,6 +17,10 @@ if not "%~1"=="" set SERVER_PORT=%~1
 
 rem 1. Check if compiled target exists
 if exist "%~dp0..\target\classes" (
+    if not exist "%~dp0..\target\dependency" (
+        echo [SeatSync] Resolving runtime dependencies...
+        call mvn -f "%~dp0..\pom.xml" dependency:copy-dependencies -DoutputDirectory="%~dp0..\target\dependency" -q
+    )
     echo [SeatSync] Found compiled classes in target\classes.
     java -cp "%~dp0..\target\classes;%~dp0..\target\dependency\*" com.seatsync.server.SeatSyncServer %SERVER_PORT%
     goto end

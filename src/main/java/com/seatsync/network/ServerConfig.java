@@ -1,0 +1,55 @@
+package com.seatsync.network;
+
+import com.seatsync.common.model.ProtocolConstants;
+
+import java.util.Objects;
+
+/**
+ * Immutable configuration for the non-blocking Java NIO booking server.
+ *
+ * @param host          Listening host address (default: 127.0.0.1)
+ * @param port          Listening TCP port (default: 5050, 0 for dynamic ephemeral allocation)
+ * @param maxFrameBytes Maximum allowable line frame size in bytes (default: 16 KiB)
+ * @param readBufferBytes Direct/Heap buffer size allocated per read operation
+ */
+public record ServerConfig(
+    String host,
+    int port,
+    int maxFrameBytes,
+    int readBufferBytes
+) {
+    public static final String DEFAULT_HOST = "127.0.0.1";
+    public static final int DEFAULT_PORT = 5050;
+    public static final int DEFAULT_READ_BUFFER_BYTES = 4096;
+
+    public ServerConfig {
+        Objects.requireNonNull(host, "host must not be null");
+        if (port < 0 || port > 65535) {
+            throw new IllegalArgumentException("Port must be between 0 and 65535: " + port);
+        }
+        if (maxFrameBytes <= 0) {
+            throw new IllegalArgumentException("maxFrameBytes must be positive: " + maxFrameBytes);
+        }
+        if (readBufferBytes <= 0) {
+            throw new IllegalArgumentException("readBufferBytes must be positive: " + readBufferBytes);
+        }
+    }
+
+    public static ServerConfig defaultConfig() {
+        return new ServerConfig(
+            DEFAULT_HOST,
+            DEFAULT_PORT,
+            ProtocolConstants.MAX_FRAME_BYTES,
+            DEFAULT_READ_BUFFER_BYTES
+        );
+    }
+
+    public static ServerConfig of(String host, int port) {
+        return new ServerConfig(
+            host,
+            port,
+            ProtocolConstants.MAX_FRAME_BYTES,
+            DEFAULT_READ_BUFFER_BYTES
+        );
+    }
+}

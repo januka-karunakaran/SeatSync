@@ -44,8 +44,8 @@ To maintain strict alignment with undergraduate network programming core concept
 
 ## Prerequisites
 
-1. **Java Development Kit (JDK):** Version 21 (LTS) or higher
-2. **Apache Maven:** Version 3.9 or higher
+1. **Java Development Kit (JDK):** Version 17 (LTS) or 21 (LTS)
+2. **Apache Maven:** Version 3.8 or higher
 3. **Git:** Configured with user identity
 
 Verify your local environment:
@@ -130,6 +130,7 @@ SeatSync/
 
 ## Technical Documentation Links
 
+- [Developer Setup & Team Onboarding Guide](docs/SETUP_GUIDE.md) **(START HERE)**
 - [System Architecture Specification](docs/ARCHITECTURE.md)
 - [Wire Protocol & Contract Signatures](docs/PROTOCOL.md)
 - [Team Ownership & Workflow Guide](docs/CONTRIBUTIONS.md)

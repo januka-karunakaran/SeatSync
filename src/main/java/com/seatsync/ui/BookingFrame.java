@@ -72,10 +72,10 @@ public class BookingFrame extends JFrame implements ClientMessageHandler.Listene
     private SeatGridPanel seatGridPanel;
     private JLabel lblSelectedSeat;
     private JLabel lblConnectionStatus;
-    private JButton btnBook;
-    private JButton btnCancel;
-    private JButton btnRefresh;
-    private JButton btnLogout;
+    private ThemedButton btnBook;
+    private ThemedButton btnCancel;
+    private ThemedButton btnRefresh;
+    private ThemedButton btnLogout;
     private JTextArea logArea;
 
     /**
@@ -171,9 +171,8 @@ public class BookingFrame extends JFrame implements ClientMessageHandler.Listene
         lblConnectionStatus.setForeground(new Color(46, 125, 50));
         statusBox.add(lblConnectionStatus);
 
-        btnLogout = new JButton("Logout");
-        btnLogout.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        btnLogout.setFocusPainted(false);
+        btnLogout = new ThemedButton("Logout", new Color(198, 40, 40), Color.WHITE);
+        btnLogout.setFont(new Font("Segoe UI", Font.BOLD, 12));
         btnLogout.addActionListener(e -> performLogout());
         statusBox.add(btnLogout);
 
@@ -196,25 +195,18 @@ public class BookingFrame extends JFrame implements ClientMessageHandler.Listene
         // Buttons
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
 
-        btnBook = new JButton("Book Seat");
+        btnBook = new ThemedButton("Book Seat", new Color(46, 125, 50), Color.WHITE);
         btnBook.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        btnBook.setBackground(new Color(46, 125, 50));
-        btnBook.setForeground(Color.WHITE);
-        btnBook.setFocusPainted(false);
         btnBook.setEnabled(false);
         btnBook.addActionListener(e -> performBookSeat());
 
-        btnCancel = new JButton("Cancel Booking");
+        btnCancel = new ThemedButton("Cancel Booking", new Color(198, 40, 40), Color.WHITE);
         btnCancel.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        btnCancel.setBackground(new Color(198, 40, 40));
-        btnCancel.setForeground(Color.WHITE);
-        btnCancel.setFocusPainted(false);
         btnCancel.setEnabled(false);
         btnCancel.addActionListener(e -> performCancelBooking());
 
-        btnRefresh = new JButton("Refresh");
-        btnRefresh.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        btnRefresh.setFocusPainted(false);
+        btnRefresh = new ThemedButton("Refresh", new Color(55, 71, 79), Color.WHITE);
+        btnRefresh.setFont(new Font("Segoe UI", Font.BOLD, 12));
         btnRefresh.addActionListener(e -> requestSeatSnapshot());
 
         btnPanel.add(btnBook);

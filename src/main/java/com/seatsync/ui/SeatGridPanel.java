@@ -119,14 +119,15 @@ public class SeatGridPanel extends JPanel {
 
     private JPanel createLegendBadge(String text, Color bg, Color fg) {
         JPanel panel = new JPanel(new BorderLayout());
-        JLabel badge = new JLabel(text, SwingConstants.CENTER);
+        String hexFg = (fg == Color.BLACK) ? "#000000" : "#ffffff";
+        JLabel badge = new JLabel("<html><center><font color='" + hexFg + "'><b>" + text + "</b></font></center></html>", SwingConstants.CENTER);
         badge.setOpaque(true);
         badge.setBackground(bg);
         badge.setForeground(fg);
         badge.setFont(new Font("Segoe UI", Font.BOLD, 11));
         badge.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(Color.GRAY, 1),
-            BorderFactory.createEmptyBorder(4, 6, 4, 6)
+            BorderFactory.createLineBorder(bg.darker(), 1),
+            BorderFactory.createEmptyBorder(6, 10, 6, 10)
         ));
         panel.add(badge, BorderLayout.CENTER);
         return panel;
@@ -214,25 +215,25 @@ public class SeatGridPanel extends JPanel {
             btn.setContentAreaFilled(true);
 
             if (isSelected) {
-                btn.setText("<html><center><b>" + seatId + "</b><br><small style='font-size:9px'>Selected</small></center></html>");
+                btn.setText("<html><center><font color='#000000'><b>" + seatId + "</b><br><small style='font-size:9px'>Selected</small></font></center></html>");
                 btn.setBackground(COLOR_SELECTED);
                 btn.setForeground(Color.BLACK);
                 btn.setBorder(BorderFactory.createLineBorder(Color.BLACK, 2));
             } else if (isMine) {
-                btn.setText("<html><center><b>" + seatId + "</b><br><small style='font-size:9px'>Mine</small></center></html>");
+                btn.setText("<html><center><font color='#ffffff'><b>" + seatId + "</b><br><small style='font-size:9px'>Mine</small></font></center></html>");
                 btn.setBackground(COLOR_MY_BOOKING);
                 btn.setForeground(Color.WHITE);
-                btn.setBorder(BorderFactory.createLineBorder(Color.WHITE, 1));
+                btn.setBorder(BorderFactory.createLineBorder(new Color(13, 71, 161), 1));
             } else if (isBooked) {
-                btn.setText("<html><center><b>" + seatId + "</b><br><small style='font-size:9px'>Booked</small></center></html>");
+                btn.setText("<html><center><font color='#ffffff'><b>" + seatId + "</b><br><small style='font-size:9px'>Booked</small></font></center></html>");
                 btn.setBackground(COLOR_BOOKED);
                 btn.setForeground(Color.WHITE);
-                btn.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY, 1));
+                btn.setBorder(BorderFactory.createLineBorder(new Color(183, 28, 28), 1));
             } else {
-                btn.setText("<html><center><b>" + seatId + "</b><br><small style='font-size:9px'>Open</small></center></html>");
+                btn.setText("<html><center><font color='#ffffff'><b>" + seatId + "</b><br><small style='font-size:9px'>Open</small></font></center></html>");
                 btn.setBackground(COLOR_AVAILABLE);
                 btn.setForeground(Color.WHITE);
-                btn.setBorder(BorderFactory.createLineBorder(Color.WHITE, 1));
+                btn.setBorder(BorderFactory.createLineBorder(new Color(27, 94, 32), 1));
             }
 
             // Tooltip and accessibility text

@@ -47,7 +47,7 @@ public class LoginFrame extends JFrame {
     private final JTextField txtPort;
     private final JTextField txtUsername;
     private final JPasswordField txtPassword;
-    private final JButton btnLogin;
+    private final ThemedButton btnLogin;
     private final JLabel lblStatus;
 
     /**
@@ -152,13 +152,11 @@ public class LoginFrame extends JFrame {
         bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.Y_AXIS));
         bottomPanel.setOpaque(false);
 
-        btnLogin = new JButton("Connect & Log In");
+        btnLogin = new ThemedButton("Connect & Log In", new Color(21, 101, 192), Color.WHITE);
         btnLogin.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        btnLogin.setBackground(new Color(21, 101, 192));
-        btnLogin.setForeground(Color.WHITE);
-        btnLogin.setFocusPainted(false);
         btnLogin.setAlignmentX(CENTER_ALIGNMENT);
-        btnLogin.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
+        btnLogin.setMaximumSize(new Dimension(Integer.MAX_VALUE, 42));
+        btnLogin.setPreferredSize(new Dimension(380, 42));
         btnLogin.addActionListener(e -> performLogin());
 
         lblStatus = new JLabel("Ready to connect", SwingConstants.CENTER);

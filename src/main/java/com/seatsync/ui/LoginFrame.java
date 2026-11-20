@@ -239,6 +239,7 @@ public final class LoginFrame extends JFrame {
                         setStatus("Login successful! Loading cinema...", new Color(46, 125, 50));
                         dispose();
                         BookingFrame bookingFrame = new BookingFrame(client, ok.username(), ok.userId());
+                        bookingFrame.initialize();
                         bookingFrame.setVisible(true);
                     });
                 } else if (reply instanceof LoginFailedReply failed) {

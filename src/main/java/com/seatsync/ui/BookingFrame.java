@@ -86,34 +86,38 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
      * @param username  Authenticated client username
      * @param userId    Authenticated client user ID
      */
-    @SuppressWarnings("this-escape")
     public BookingFrame(TcpClient tcpClient, String username, String userId) {
         this(tcpClient, username, userId, ProtocolConstants.DEFAULT_SHOW_ID);
     }
 
     /**
      * Constructs the BookingFrame window with a specific show ID.
+     * Pure constructor that assigns fields without leaking 'this'.
+     * Call {@link #initialize()} after construction to build UI and bind listeners.
      *
      * @param tcpClient Active connected TCP client
      * @param username  Authenticated client username
      * @param userId    Authenticated client user ID
      * @param showId    Target cinema show ID
      */
-    @SuppressWarnings("this-escape")
     public BookingFrame(TcpClient tcpClient, String username, String userId, String showId) {
         super("SeatSync - Cinema Seat Reservation (" + username + ")");
         this.tcpClient = tcpClient;
         this.username = username;
         this.userId = userId;
         this.showId = (showId != null && !showId.isBlank()) ? showId : ProtocolConstants.DEFAULT_SHOW_ID;
+    }
 
+    /**
+     * Initializes UI layout, binds protocol message listeners, and fetches initial seat state.
+     * Executed post-construction to eliminate 'this' escape during object initialization.
+     */
+    public void initialize() {
         initUI();
-
-        // Register protocol event listener
-        this.tcpClient.getMessageHandler().addListener(this);
-
-        // Fetch initial seat allocation
-        requestSeatSnapshot();
+        if (tcpClient != null) {
+            tcpClient.getMessageHandler().addListener(this);
+            requestSeatSnapshot();
+        }
     }
 
     private void initUI() {

@@ -8,7 +8,7 @@ import java.io.IOException;
 /**
  * Main entry point for the SeatSync Java NIO Server.
  * <p>
- * Defaults to loopback host (127.0.0.1) and port 5050.
+ * Defaults to loopback host (127.0.0.1) and port 8080.
  * Host and port can be overridden via command-line arguments.
  */
 public class SeatSyncServerMain {
@@ -36,6 +36,9 @@ public class SeatSyncServerMain {
         ServerConfig config = ServerConfig.of(host, port);
         MockRequestDispatcher mockDispatcher = new MockRequestDispatcher();
         NioBookingServer server = new NioBookingServer(config, mockDispatcher);
+
+        // Wire server session registry to broadcast real-time seat changes to all connected clients
+        mockDispatcher.setBroadcaster(server.getSessionRegistry()::broadcast);
 
         System.out.println("=================================================================");
         System.out.println("  SeatSync Non-Blocking Java NIO Server (Java 21)");

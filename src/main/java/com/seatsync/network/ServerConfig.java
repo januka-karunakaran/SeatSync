@@ -19,7 +19,7 @@ public record ServerConfig(
     int readBufferBytes
 ) {
     public static final String DEFAULT_HOST = "127.0.0.1";
-    public static final int DEFAULT_PORT = 5050;
+    public static final int DEFAULT_PORT = ProtocolConstants.DEFAULT_PORT;
     public static final int DEFAULT_READ_BUFFER_BYTES = 4096;
 
     public ServerConfig {

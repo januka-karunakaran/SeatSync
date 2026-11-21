@@ -7,14 +7,16 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Logger;
 
 /** Runs one ordered queue per active session, sharing four workers across sessions. */
 public final class WorkerPoolManager implements AutoCloseable {
     private static final Logger LOG = Logger.getLogger(WorkerPoolManager.class.getName());
     private static final int MAX_PENDING = 128;
+    private final AtomicInteger threadNumber = new AtomicInteger(1);
     private final ExecutorService pool = Executors.newFixedThreadPool(4,
-        Thread.ofPlatform().name("seatsync-worker-", 1).factory());
+        r -> new Thread(r, "seatsync-worker-" + threadNumber.getAndIncrement()));
     private final Map<RequestContext, ArrayDeque<Runnable>> queues = new HashMap<>();
     private int pending;
 

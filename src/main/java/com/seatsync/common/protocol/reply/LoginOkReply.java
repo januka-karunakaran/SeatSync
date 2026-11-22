@@ -10,12 +10,18 @@ import java.util.Objects;
 public record LoginOkReply(
     String requestId,
     String userId,
-    String username
+    String username,
+    com.seatsync.common.model.UserRole role
 ) implements ReplyMessage {
     public LoginOkReply {
         Objects.requireNonNull(requestId, "requestId must not be null");
         Objects.requireNonNull(userId, "userId must not be null");
         Objects.requireNonNull(username, "username must not be null");
+        role = role == null ? com.seatsync.common.model.UserRole.CUSTOMER : role;
+    }
+
+    public LoginOkReply(String requestId, String userId, String username) {
+        this(requestId, userId, username, com.seatsync.common.model.UserRole.CUSTOMER);
     }
 
     @Override

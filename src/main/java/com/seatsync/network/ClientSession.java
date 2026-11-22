@@ -102,13 +102,20 @@ public class ClientSession implements RequestContext {
     }
 
     @Override
-    public void setAuthenticatedUserId(String userId) {
+    public synchronized void setAuthenticatedUserId(String userId) {
         authenticatedUserId.set(userId);
     }
 
     @Override
-    public void clearAuthentication() {
+    public synchronized void clearAuthentication() {
         authenticatedUserId.set(null);
+    }
+
+    /** Atomically check the current session user and queue a private event. */
+    public synchronized void sendToUser(String userId, String line) {
+        if (userId.equals(authenticatedUserId.get())) {
+            send(line);
+        }
     }
 
     @Override

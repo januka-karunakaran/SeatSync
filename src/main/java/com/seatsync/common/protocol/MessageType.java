@@ -32,6 +32,11 @@ public enum MessageType {
 
     // V2 Client Requests: Admin & Governance
     ADMIN_ADD_SHOW,
+    ADMIN_CREATE_MOVIE,
+    ADMIN_CREATE_SHOW,
+    ADMIN_DISABLE_SHOW,
+    ADMIN_LIST_BOOKINGS,
+    GET_MOVIES,
     ADMIN_UPDATE_SEAT_STATUS,
     ADMIN_GET_AUDIT_LOGS,
     ADMIN_CANCEL_HOLD,
@@ -77,6 +82,10 @@ public enum MessageType {
 
     // V2 Server Replies: Admin
     ADMIN_SHOW_ADDED,
+    ADMIN_MOVIE_CREATED,
+    ADMIN_SHOW_DISABLED,
+    ADMIN_BOOKINGS_REPLY,
+    MOVIE_LIST_REPLY,
     ADMIN_SEAT_UPDATED,
     ADMIN_AUDIT_LOGS_REPLY,
     ADMIN_HOLD_CANCELLED,

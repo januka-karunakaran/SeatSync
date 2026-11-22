@@ -12,6 +12,14 @@ import com.seatsync.security.AuthorizationService;
 import com.seatsync.security.DemoUserRepository;
 import com.seatsync.security.PasswordHasher;
 import com.seatsync.security.SecurityRequestDispatcher;
+import com.seatsync.security.AdminRequestDispatcher;
+import com.seatsync.security.AdminService;
+import com.seatsync.security.SecurityAuditLog;
+import com.seatsync.security.HoldAdminBackend;
+import com.seatsync.security.tls.TlsServerConfiguration;
+import com.seatsync.common.model.TlsConfigMode;
+import java.time.Clock;
+import java.util.concurrent.atomic.AtomicReference;
 
 import java.io.IOException;
 
@@ -43,7 +51,14 @@ public class SeatSyncServerMain {
             }
         }
 
-        ServerConfig config = ServerConfig.of(host, port);
+        ServerConfig config;
+        try {
+            config = TlsServerConfiguration.fromEnvironment(host, port, System.getenv());
+        } catch (IOException | java.security.GeneralSecurityException | IllegalArgumentException invalid) {
+            System.err.println("[FATAL] Invalid TLS configuration; check mode, paths, passwords and certificate validity.");
+            System.exit(1);
+            return;
+        }
         String password = System.getenv("SEATSYNC_DEMO_PASSWORD");
         if (password == null || password.isEmpty()) {
             System.err.println("[FATAL] Set SEATSYNC_DEMO_PASSWORD for the local demo accounts.");
@@ -51,14 +66,39 @@ public class SeatSyncServerMain {
             return;
         }
         PasswordHasher hasher = new PasswordHasher();
-        AuthService auth = new AuthService(new DemoUserRepository(password.toCharArray(), hasher), hasher);
+        String adminPassword = System.getenv("SEATSYNC_ADMIN_PASSWORD");
+        DemoUserRepository users = new DemoUserRepository(password.toCharArray(),
+            adminPassword == null ? null : adminPassword.toCharArray(), hasher);
+        AuthService auth = new AuthService(users, hasher);
+        var authorization = new AuthorizationService(users);
+        var audit = new SecurityAuditLog();
         var reservations = new InMemoryReservationService();
         var booking = new BookingRequestProcessor(auth, reservations);
+        var serverReference = new AtomicReference<NioBookingServer>();
+        var adminService = new AdminService(authorization, reservations, reservations::registerShow,
+            new HoldAdminBackend(authorization, reservations), audit, Clock.systemUTC(), show -> {
+                // U06 supplies the subscription-aware show event fan-out; no second event bus here.
+                audit.record("system", "SHOW_CATALOG_CHANGED", show.showId(), SecurityAuditLog.Outcome.SUCCESS);
+            });
+        var adminDispatcher = new AdminRequestDispatcher(authorization, adminService, audit,
+            () -> serverReference.get().getMetricsTracker().getNetworkMetricsSnapshot(),
+            () -> serverReference.get().getMetricsTracker().getMetricsSnapshot(), booking);
         WorkerRequestDispatcher dispatcher = new WorkerRequestDispatcher(
-            new SecurityRequestDispatcher(auth, new AuthorizationService(), booking));
+            new SecurityRequestDispatcher(auth, authorization, adminDispatcher, audit));
         NioBookingServer server = new NioBookingServer(config, dispatcher);
+        serverReference.set(server);
+        reservations.addCatalogChangeListener(event -> {
+            String line = ProtocolJson.serialize(event);
+            server.getSessionRegistry().getAll().forEach(session -> {
+                if (session.isOpen() && session.isAuthenticated()) { session.send(line); }
+            });
+        });
 
         // Wire server session registry to broadcast real-time seat changes to all connected clients
+        reservations.addOfferListener(offer -> {
+            String line = ProtocolJson.serialize(offer);
+            server.getSessionRegistry().getAll().forEach(session -> session.sendToUser(offer.promotedUserId(), line));
+        });
         reservations.addSeatChangeListener((showId, version, seats) -> {
             String line = ProtocolJson.serialize(new SeatUpdatedEvent(showId, version, seats));
             server.getSessionRegistry().getAll().forEach(session -> {
@@ -76,10 +116,20 @@ public class SeatSyncServerMain {
         System.out.println("[INFO] Port: " + config.port());
         System.out.println("[INFO] Max Frame Size: " + config.maxFrameBytes() + " bytes (16 KiB)");
         System.out.println("[INFO] Transport: Non-blocking ServerSocketChannel + Selector loop");
+        System.out.println(config.tlsMode() == TlsConfigMode.REQUIRED
+            ? "[INFO] TLS 1.3 required; plaintext listener disabled. Secure port: " + config.tlsPort()
+            : "[INFO] PLAINTEXT LOCAL DEVELOPMENT ONLY (loopback); traffic is not encrypted.");
 
+        var expiry = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+            var thread = new Thread(r, "seatsync-hold-expiry");
+            thread.setDaemon(true);
+            return thread;
+        });
         try {
             server.start();
-            System.out.println("[INFO] SeatSync NIO Server successfully listening on " + host + ":" + server.getPort());
+            expiry.scheduleWithFixedDelay(reservations::expireHolds, 1, 1, java.util.concurrent.TimeUnit.SECONDS);
+            int listeningPort = config.tlsMode() == TlsConfigMode.REQUIRED ? server.getTlsPort() : server.getPort();
+            System.out.println("[INFO] SeatSync NIO Server successfully listening on " + host + ":" + listeningPort);
         } catch (IOException e) {
             System.err.println("[FATAL] Failed to start SeatSync NIO server: " + e.getMessage());
             e.printStackTrace();
@@ -88,6 +138,7 @@ public class SeatSyncServerMain {
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("\n[INFO] Shutdown hook triggered, stopping NIO server...");
+            expiry.shutdownNow();
             server.stop();
             dispatcher.close();
             System.out.println("[INFO] SeatSync NIO Server stopped gracefully.");

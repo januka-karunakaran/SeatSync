@@ -1,5 +1,11 @@
 # SeatSync 2.0 PR Tracker & Implementation Roadmap
 
+> Current final allocation supplied by the user assigns M4 U02 (admin/RBAC), U12
+> (TLS configuration) and U15 (security regression). The earlier numbering below
+> predates that allocation. See V2_MEMBER04_SECURITY.md for the actual implementation,
+> locally integrated M3 dependencies and remaining M1/M5 acceptance gates. Shared
+> admin protocol/backend extensions were explicitly authorized by the user.
+
 This tracker defines the official pull request sequence for the SeatSync 2.0 upgrade sprint, spanning **PR U00 through PR U17**. Each PR has a designated owner, reviewer, branch convention, dependency tree, and acceptance criteria.
 
 ---

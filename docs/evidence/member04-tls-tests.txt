@@ -1,0 +1,13 @@
+Actual Maven Surefire results, 22 November 2026 (Asia/Colombo).
+Command: mvn -B -o -Dmaven.repo.local=C:\Users\Jogeesan\.m2\repository clean test
+Full suite: 104 tests; 0 failures; 0 errors; 0 skipped.
+
+com.seatsync.security.SecurityTlsRegressionTest
+tests=7, failures=0, errors=0, skipped=0
+PASS: requiredConfigFailsClosedWithoutSecretsAndPlaintextIsLoopbackOnly
+PASS: untrustedAndWrongHostnameCertificatesAreRejected
+PASS: configuredClientEnginesEnableHostnameValidationAndOnlyTls13
+PASS: trustedTls13ConnectionEnforcesAdminPolicyOverRealNio
+PASS: tls12AndPlaintextCannotUseRequiredTlsPort
+PASS: factoryConsumesPasswordsAndRejectsMissingEmptyWrongAndExpiredMaterial
+PASS: malformedAndOversizedFramesAreRejectedAfterTlsDecryption

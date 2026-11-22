@@ -59,6 +59,10 @@ public class SeatSyncServerMain {
         NioBookingServer server = new NioBookingServer(config, dispatcher);
 
         // Wire server session registry to broadcast real-time seat changes to all connected clients
+        reservations.addOfferListener(offer -> {
+            String line = ProtocolJson.serialize(offer);
+            server.getSessionRegistry().getAll().forEach(session -> session.sendToUser(offer.promotedUserId(), line));
+        });
         reservations.addSeatChangeListener((showId, version, seats) -> {
             String line = ProtocolJson.serialize(new SeatUpdatedEvent(showId, version, seats));
             server.getSessionRegistry().getAll().forEach(session -> {

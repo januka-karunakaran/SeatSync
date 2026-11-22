@@ -53,7 +53,7 @@ public final class SecurityRequestDispatcher implements RequestDispatcher {
             Set<String> allowed = switch (type) {
                 case "LOGIN" -> Set.of("type", "requestId", "username", "password");
                 case "GET_SHOWS" -> Set.of("type", "requestId");
-                case "GET_SEATS", "GET_SHOW_DETAILS" -> Set.of("type", "requestId", "showId");
+                case "GET_SEATS", "GET_SHOW_DETAILS", "JOIN_WAITLIST", "LEAVE_WAITLIST", "GET_WAITLIST_STATUS" -> Set.of("type", "requestId", "showId");
                 case "HOLD_SEAT" -> Set.of("type", "requestId", "showId", "seatId", "holdDurationSeconds");
                 case "RELEASE_HOLD" -> Set.of("type", "requestId", "holdId");
                 case "CONFIRM_HOLD" -> Set.of("type", "requestId", "holdId", "idempotencyKey");

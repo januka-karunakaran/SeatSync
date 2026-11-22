@@ -10,8 +10,7 @@ public final class WorkerRequestDispatcher implements RequestDispatcher, AutoClo
     private final RequestDispatcher processor;
 
     public WorkerRequestDispatcher(AuthService auth, ReservationService reservations) {
-        var bookingProcessor = new BookingRequestProcessor(auth, reservations);
-        processor = bookingProcessor::process;
+        processor = new BookingRequestProcessor(auth, reservations);
     }
 
     public WorkerRequestDispatcher(RequestDispatcher dispatcher) {

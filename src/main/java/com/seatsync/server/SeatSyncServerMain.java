@@ -1,5 +1,9 @@
 package com.seatsync.server;
 
+import com.seatsync.booking.InMemoryReservationService;
+import com.seatsync.concurrency.BookingRequestProcessor;
+import com.seatsync.common.protocol.ProtocolJson;
+import com.seatsync.common.protocol.event.SeatUpdatedEvent;
 import com.seatsync.network.NioBookingServer;
 import com.seatsync.network.ServerConfig;
 import com.seatsync.concurrency.WorkerRequestDispatcher;
@@ -48,17 +52,21 @@ public class SeatSyncServerMain {
         }
         PasswordHasher hasher = new PasswordHasher();
         AuthService auth = new AuthService(new DemoUserRepository(password.toCharArray(), hasher), hasher);
-        MockRequestDispatcher mockDispatcher = new MockRequestDispatcher();
+        var reservations = new InMemoryReservationService();
+        var booking = new BookingRequestProcessor(auth, reservations);
         WorkerRequestDispatcher dispatcher = new WorkerRequestDispatcher(
-            new SecurityRequestDispatcher(auth, new AuthorizationService(), mockDispatcher));
+            new SecurityRequestDispatcher(auth, new AuthorizationService(), booking));
         NioBookingServer server = new NioBookingServer(config, dispatcher);
 
         // Wire server session registry to broadcast real-time seat changes to all connected clients
-        mockDispatcher.setBroadcaster(line -> server.getSessionRegistry().getAll().forEach(session -> {
-            if (session.isOpen() && session.isAuthenticated()) {
-                session.send(line);
-            }
-        }));
+        reservations.addSeatChangeListener((showId, version, seats) -> {
+            String line = ProtocolJson.serialize(new SeatUpdatedEvent(showId, version, seats));
+            server.getSessionRegistry().getAll().forEach(session -> {
+                if (session.isOpen() && session.isAuthenticated()) {
+                    session.send(line);
+                }
+            });
+        });
 
         System.out.println("=================================================================");
         System.out.println("  SeatSync Non-Blocking Java NIO Server (Java 21)");

@@ -2,20 +2,24 @@ package com.seatsync.network;
 
 import com.seatsync.common.model.ProtocolConstants;
 import com.seatsync.common.model.TlsConfigMode;
+import com.seatsync.network.discovery.DiscoveryConstants;
 
 import javax.net.ssl.SSLContext;
 import java.util.Objects;
 
 /**
- * Immutable configuration for the non-blocking Java NIO booking server and TLS transport.
+ * Immutable configuration for the non-blocking Java NIO booking server, UDP discovery, and TLS transport.
  *
- * @param host            Listening host address (default: 127.0.0.1)
- * @param port            Listening plaintext TCP port (default: 8080, 0 for dynamic ephemeral allocation)
- * @param maxFrameBytes   Maximum allowable line frame size in bytes (default: 16 KiB)
- * @param readBufferBytes Direct/Heap buffer size allocated per read operation
- * @param tlsMode         TLS operation mode (DISABLED, OPTIONAL, REQUIRED)
- * @param tlsPort         Listening secure TLS port (default: 8443, 0 for dynamic ephemeral allocation)
- * @param sslContext      Server SSLContext (must be non-null if tlsMode != DISABLED)
+ * @param host                Listening host address (default: 127.0.0.1)
+ * @param port                Listening plaintext TCP port (default: 8080, 0 for dynamic ephemeral allocation)
+ * @param maxFrameBytes       Maximum allowable line frame size in bytes (default: 16 KiB)
+ * @param readBufferBytes     Direct/Heap buffer size allocated per read operation
+ * @param tlsMode             TLS operation mode (DISABLED, OPTIONAL, REQUIRED)
+ * @param tlsPort             Listening secure TLS port (default: 8443, 0 for dynamic ephemeral allocation)
+ * @param sslContext          Server SSLContext (must be non-null if tlsMode != DISABLED)
+ * @param udpDiscoveryEnabled Whether the UDP discovery listener should start with the server
+ * @param udpPort             Listening UDP port for discovery (default: 5051)
+ * @param manualLanIp         Optional manual LAN IP to advertise instead of auto-detection
  */
 public record ServerConfig(
     String host,
@@ -24,12 +28,16 @@ public record ServerConfig(
     int readBufferBytes,
     TlsConfigMode tlsMode,
     int tlsPort,
-    SSLContext sslContext
+    SSLContext sslContext,
+    boolean udpDiscoveryEnabled,
+    int udpPort,
+    String manualLanIp
 ) {
     public static final String DEFAULT_HOST = "127.0.0.1";
     public static final int DEFAULT_PORT = ProtocolConstants.DEFAULT_PORT;
     public static final int DEFAULT_READ_BUFFER_BYTES = 4096;
     public static final int DEFAULT_TLS_PORT = 8443;
+    public static final int DEFAULT_UDP_PORT = DiscoveryConstants.DEFAULT_UDP_PORT;
 
     public ServerConfig {
         Objects.requireNonNull(host, "host must not be null");
@@ -46,13 +54,30 @@ public record ServerConfig(
         if (tlsPort < 0 || tlsPort > 65535) {
             throw new IllegalArgumentException("tlsPort must be between 0 and 65535: " + tlsPort);
         }
+        if (udpPort < 0 || udpPort > 65535) {
+            throw new IllegalArgumentException("udpPort must be between 0 and 65535: " + udpPort);
+        }
     }
 
     /**
      * Backwards-compatible 4-argument constructor.
      */
     public ServerConfig(String host, int port, int maxFrameBytes, int readBufferBytes) {
-        this(host, port, maxFrameBytes, readBufferBytes, TlsConfigMode.DISABLED, DEFAULT_TLS_PORT, null);
+        this(host, port, maxFrameBytes, readBufferBytes, TlsConfigMode.DISABLED, DEFAULT_TLS_PORT, null, true, DEFAULT_UDP_PORT, null);
+    }
+
+    /**
+     * Backwards-compatible TLS constructor.
+     */
+    public ServerConfig(String host, int port, int maxFrameBytes, int readBufferBytes, TlsConfigMode tlsMode, int tlsPort, SSLContext sslContext) {
+        this(host, port, maxFrameBytes, readBufferBytes, tlsMode, tlsPort, sslContext, true, DEFAULT_UDP_PORT, null);
+    }
+
+    /**
+     * Backwards-compatible UDP discovery constructor.
+     */
+    public ServerConfig(String host, int port, int maxFrameBytes, int readBufferBytes, boolean udpDiscoveryEnabled, int udpPort, String manualLanIp) {
+        this(host, port, maxFrameBytes, readBufferBytes, TlsConfigMode.DISABLED, DEFAULT_TLS_PORT, null, udpDiscoveryEnabled, udpPort, manualLanIp);
     }
 
     public static ServerConfig defaultConfig() {
@@ -63,6 +88,9 @@ public record ServerConfig(
             DEFAULT_READ_BUFFER_BYTES,
             TlsConfigMode.DISABLED,
             DEFAULT_TLS_PORT,
+            null,
+            true,
+            DEFAULT_UDP_PORT,
             null
         );
     }
@@ -75,6 +103,24 @@ public record ServerConfig(
             DEFAULT_READ_BUFFER_BYTES,
             TlsConfigMode.DISABLED,
             DEFAULT_TLS_PORT,
+            null,
+            true,
+            DEFAULT_UDP_PORT,
+            null
+        );
+    }
+
+    public static ServerConfig of(String host, int port, boolean udpEnabled, int udpPort) {
+        return new ServerConfig(
+            host,
+            port,
+            ProtocolConstants.MAX_FRAME_BYTES,
+            DEFAULT_READ_BUFFER_BYTES,
+            TlsConfigMode.DISABLED,
+            DEFAULT_TLS_PORT,
+            null,
+            udpEnabled,
+            udpPort,
             null
         );
     }
@@ -87,7 +133,10 @@ public record ServerConfig(
             DEFAULT_READ_BUFFER_BYTES,
             TlsConfigMode.REQUIRED,
             tlsPort,
-            sslContext
+            sslContext,
+            true,
+            DEFAULT_UDP_PORT,
+            null
         );
     }
 
@@ -99,7 +148,10 @@ public record ServerConfig(
             DEFAULT_READ_BUFFER_BYTES,
             TlsConfigMode.OPTIONAL,
             tlsPort,
-            sslContext
+            sslContext,
+            true,
+            DEFAULT_UDP_PORT,
+            null
         );
     }
 }

@@ -59,6 +59,10 @@ public class SeatSyncServerMain {
         NioBookingServer server = new NioBookingServer(config, dispatcher);
 
         // Wire server session registry to broadcast real-time seat changes to all connected clients
+        reservations.addOfferListener(offer -> {
+            String line = ProtocolJson.serialize(offer);
+            server.getSessionRegistry().getAll().forEach(session -> session.sendToUser(offer.promotedUserId(), line));
+        });
         reservations.addSeatChangeListener((showId, version, seats) -> {
             String line = ProtocolJson.serialize(new SeatUpdatedEvent(showId, version, seats));
             server.getSessionRegistry().getAll().forEach(session -> {
@@ -77,8 +81,14 @@ public class SeatSyncServerMain {
         System.out.println("[INFO] Max Frame Size: " + config.maxFrameBytes() + " bytes (16 KiB)");
         System.out.println("[INFO] Transport: Non-blocking ServerSocketChannel + Selector loop");
 
+        var expiry = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+            var thread = new Thread(r, "seatsync-hold-expiry");
+            thread.setDaemon(true);
+            return thread;
+        });
         try {
             server.start();
+            expiry.scheduleWithFixedDelay(reservations::expireHolds, 1, 1, java.util.concurrent.TimeUnit.SECONDS);
             System.out.println("[INFO] SeatSync NIO Server successfully listening on " + host + ":" + server.getPort());
         } catch (IOException e) {
             System.err.println("[FATAL] Failed to start SeatSync NIO server: " + e.getMessage());
@@ -88,6 +98,7 @@ public class SeatSyncServerMain {
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("\n[INFO] Shutdown hook triggered, stopping NIO server...");
+            expiry.shutdownNow();
             server.stop();
             dispatcher.close();
             System.out.println("[INFO] SeatSync NIO Server stopped gracefully.");

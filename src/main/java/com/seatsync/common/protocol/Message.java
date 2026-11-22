@@ -27,6 +27,7 @@ import com.seatsync.common.protocol.reply.HoldReleasedRejectedReply;
 import com.seatsync.common.protocol.reply.LoginFailedReply;
 import com.seatsync.common.protocol.reply.LoginOkReply;
 import com.seatsync.common.protocol.reply.LogoutOkReply;
+import com.seatsync.common.protocol.reply.NetworkMetricsReply;
 import com.seatsync.common.protocol.reply.SeatSnapshotReply;
 import com.seatsync.common.protocol.reply.ServerMetricsReply;
 import com.seatsync.common.protocol.reply.ShowDetailsReply;
@@ -46,6 +47,7 @@ import com.seatsync.common.protocol.request.BookSeatRequest;
 import com.seatsync.common.protocol.request.CancelBookingRequest;
 import com.seatsync.common.protocol.request.ConfirmHoldRequest;
 import com.seatsync.common.protocol.request.GetBookingHistoryRequest;
+import com.seatsync.common.protocol.request.GetNetworkMetricsRequest;
 import com.seatsync.common.protocol.request.GetSeatsRequest;
 import com.seatsync.common.protocol.request.GetServerMetricsRequest;
 import com.seatsync.common.protocol.request.GetShowDetailsRequest;
@@ -106,6 +108,7 @@ import com.seatsync.common.protocol.request.UnsubscribeEventsRequest;
 
     // V2 Requests: Telemetry & Pub/Sub
     @JsonSubTypes.Type(value = GetServerMetricsRequest.class, name = "GET_SERVER_METRICS"),
+    @JsonSubTypes.Type(value = GetNetworkMetricsRequest.class, name = "GET_NETWORK_METRICS"),
     @JsonSubTypes.Type(value = SubscribeEventsRequest.class, name = "SUBSCRIBE_EVENTS"),
     @JsonSubTypes.Type(value = UnsubscribeEventsRequest.class, name = "UNSUBSCRIBE_EVENTS"),
 
@@ -150,6 +153,7 @@ import com.seatsync.common.protocol.request.UnsubscribeEventsRequest;
 
     // V2 Replies: Metrics & Pub/Sub
     @JsonSubTypes.Type(value = ServerMetricsReply.class, name = "SERVER_METRICS_REPLY"),
+    @JsonSubTypes.Type(value = NetworkMetricsReply.class, name = "NETWORK_METRICS_REPLY"),
     @JsonSubTypes.Type(value = SubscribeOkReply.class, name = "SUBSCRIBE_OK"),
     @JsonSubTypes.Type(value = UnsubscribeOkReply.class, name = "UNSUBSCRIBE_OK"),
 

@@ -38,6 +38,7 @@ public enum MessageType {
 
     // V2 Client Requests: Telemetry & Pub/Sub
     GET_SERVER_METRICS,
+    GET_NETWORK_METRICS,
     SUBSCRIBE_EVENTS,
     UNSUBSCRIBE_EVENTS,
 
@@ -82,6 +83,7 @@ public enum MessageType {
 
     // V2 Server Replies: Metrics & Pub/Sub
     SERVER_METRICS_REPLY,
+    NETWORK_METRICS_REPLY,
     SUBSCRIBE_OK,
     UNSUBSCRIBE_OK,
 

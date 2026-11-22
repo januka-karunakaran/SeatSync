@@ -2,6 +2,7 @@ package com.seatsync.network;
 
 import com.seatsync.common.contracts.RequestDispatcher;
 import com.seatsync.network.discovery.LanDiscoveryListener;
+import com.seatsync.network.metrics.NetworkMetricsTracker;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -23,7 +24,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class NioBookingServer {
 
     private final ServerConfig config;
-    private final ClientSessionRegistry sessionRegistry = new ClientSessionRegistry();
+    private final NetworkMetricsTracker metricsTracker;
+    private final ClientSessionRegistry sessionRegistry;
     private final ConcurrentLinkedQueue<ClientSession> pendingWriteSessions = new ConcurrentLinkedQueue<>();
     private final AtomicBoolean running = new AtomicBoolean(false);
 
@@ -33,9 +35,15 @@ public class NioBookingServer {
     private volatile RequestDispatcher requestDispatcher;
     private LanDiscoveryListener discoveryListener;
 
-    public NioBookingServer(ServerConfig config, RequestDispatcher requestDispatcher) {
+    public NioBookingServer(ServerConfig config, RequestDispatcher requestDispatcher, NetworkMetricsTracker metricsTracker) {
         this.config = Objects.requireNonNull(config, "config must not be null");
         this.requestDispatcher = requestDispatcher;
+        this.metricsTracker = metricsTracker != null ? metricsTracker : new NetworkMetricsTracker();
+        this.sessionRegistry = new ClientSessionRegistry(this.metricsTracker);
+    }
+
+    public NioBookingServer(ServerConfig config, RequestDispatcher requestDispatcher) {
+        this(config, requestDispatcher, null);
     }
 
     public NioBookingServer(ServerConfig config) {
@@ -60,6 +68,10 @@ public class NioBookingServer {
 
     public ClientSessionRegistry getSessionRegistry() {
         return sessionRegistry;
+    }
+
+    public NetworkMetricsTracker getMetricsTracker() {
+        return metricsTracker;
     }
 
     public LanDiscoveryListener getDiscoveryListener() {
@@ -252,12 +264,14 @@ public class NioBookingServer {
             return;
         }
 
+        metricsTracker.recordAcceptedConnection();
         clientChannel.configureBlocking(false);
         ClientSession session = new ClientSession(
             clientChannel,
             this,
             config.maxFrameBytes(),
-            config.readBufferBytes()
+            config.readBufferBytes(),
+            metricsTracker
         );
 
         SelectionKey key = clientChannel.register(selector, SelectionKey.OP_READ, session);

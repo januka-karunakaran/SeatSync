@@ -2,6 +2,12 @@ package com.seatsync.server;
 
 import com.seatsync.network.NioBookingServer;
 import com.seatsync.network.ServerConfig;
+import com.seatsync.concurrency.WorkerRequestDispatcher;
+import com.seatsync.security.AuthService;
+import com.seatsync.security.AuthorizationService;
+import com.seatsync.security.DemoUserRepository;
+import com.seatsync.security.PasswordHasher;
+import com.seatsync.security.SecurityRequestDispatcher;
 
 import java.io.IOException;
 
@@ -34,11 +40,25 @@ public class SeatSyncServerMain {
         }
 
         ServerConfig config = ServerConfig.of(host, port);
+        String password = System.getenv("SEATSYNC_DEMO_PASSWORD");
+        if (password == null || password.isEmpty()) {
+            System.err.println("[FATAL] Set SEATSYNC_DEMO_PASSWORD for the local demo accounts.");
+            System.exit(1);
+            return;
+        }
+        PasswordHasher hasher = new PasswordHasher();
+        AuthService auth = new AuthService(new DemoUserRepository(password.toCharArray(), hasher), hasher);
         MockRequestDispatcher mockDispatcher = new MockRequestDispatcher();
-        NioBookingServer server = new NioBookingServer(config, mockDispatcher);
+        WorkerRequestDispatcher dispatcher = new WorkerRequestDispatcher(
+            new SecurityRequestDispatcher(auth, new AuthorizationService(), mockDispatcher));
+        NioBookingServer server = new NioBookingServer(config, dispatcher);
 
         // Wire server session registry to broadcast real-time seat changes to all connected clients
-        mockDispatcher.setBroadcaster(server.getSessionRegistry()::broadcast);
+        mockDispatcher.setBroadcaster(line -> server.getSessionRegistry().getAll().forEach(session -> {
+            if (session.isOpen() && session.isAuthenticated()) {
+                session.send(line);
+            }
+        }));
 
         System.out.println("=================================================================");
         System.out.println("  SeatSync Non-Blocking Java NIO Server (Java 21)");
@@ -61,6 +81,7 @@ public class SeatSyncServerMain {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("\n[INFO] Shutdown hook triggered, stopping NIO server...");
             server.stop();
+            dispatcher.close();
             System.out.println("[INFO] SeatSync NIO Server stopped gracefully.");
         }, "seatsync-shutdown-hook"));
 

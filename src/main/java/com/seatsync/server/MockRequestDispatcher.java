@@ -18,6 +18,7 @@ import com.seatsync.common.protocol.reply.ErrorReply;
 import com.seatsync.common.protocol.reply.LoginOkReply;
 import com.seatsync.common.protocol.reply.LogoutOkReply;
 import com.seatsync.common.protocol.reply.SeatSnapshotReply;
+import com.seatsync.security.AuthorizationService;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,6 +26,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.UUID;
 
 /**
  * Temporary mock implementation of {@link RequestDispatcher} for Stage A.
@@ -38,6 +40,7 @@ public class MockRequestDispatcher implements RequestDispatcher {
     private final Map<String, String> seatToBooking = new ConcurrentHashMap<>();
     private final Map<String, String> bookingOwners = new ConcurrentHashMap<>();
     private final AtomicLong version = new AtomicLong(1);
+    private final AuthorizationService authorization = new AuthorizationService();
     private Consumer<String> broadcaster;
 
     public MockRequestDispatcher() {
@@ -155,7 +158,7 @@ public class MockRequestDispatcher implements RequestDispatcher {
 
                     SeatView updated = new SeatView(seatId, SeatStatus.BOOKED, userId);
                     seatState.put(seatId, updated);
-                    String bookingId = "BKG-" + System.currentTimeMillis();
+                    String bookingId = "BKG-" + UUID.randomUUID();
                     bookingToSeat.put(bookingId, seatId);
                     seatToBooking.put(seatId, bookingId);
                     bookingOwners.put(bookingId, userId);
@@ -192,7 +195,6 @@ public class MockRequestDispatcher implements RequestDispatcher {
                 }
 
                 String bookingId = root.path("bookingId").asText("").trim();
-                String userId = context.getAuthenticatedUserId().orElse("USR-anon");
 
                 synchronized (seatState) {
                     String seatId = bookingToSeat.get(bookingId);
@@ -212,11 +214,11 @@ public class MockRequestDispatcher implements RequestDispatcher {
                     }
 
                     String owner = bookingOwners.get(bookingId);
-                    if (owner != null && !owner.equals(userId)) {
+                    if (!authorization.canCancel(context, owner)) {
                         CancelRejectedReply rejected = new CancelRejectedReply(
                             requestId,
                             ErrorCode.NOT_BOOKING_OWNER,
-                            "User " + userId + " does not own booking " + bookingId
+                            "Cancellation is not permitted"
                         );
                         context.send(ProtocolJson.serialize(rejected));
                         return;

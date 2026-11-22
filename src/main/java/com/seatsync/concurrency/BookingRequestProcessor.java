@@ -11,19 +11,20 @@ import com.seatsync.common.protocol.reply.*;
 import java.util.Arrays;
 import java.util.logging.Logger;
 
-final class BookingRequestProcessor {
+public final class BookingRequestProcessor implements RequestDispatcher {
     private static final Logger LOG = Logger.getLogger(BookingRequestProcessor.class.getName());
     private static final ObjectReader FRAME = ProtocolJson.mapper().readerFor(JsonNode.class)
         .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS, DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY);
     private final AuthService auth;
     private final ReservationService reservations;
 
-    BookingRequestProcessor(AuthService auth, ReservationService reservations) {
+    public BookingRequestProcessor(AuthService auth, ReservationService reservations) {
         this.auth = auth;
         this.reservations = reservations;
     }
 
-    void process(RequestContext context, String line) {
+    @Override
+    public void dispatch(RequestContext context, String line) {
         String id = "N/A";
         ReplyMessage reply;
         try {
@@ -62,16 +63,27 @@ final class BookingRequestProcessor {
                 Arrays.fill(password, '\0');
             }
         }
-        if (!type.equals("GET_SEATS") && !type.equals("BOOK_SEAT") &&
-            !type.equals("CANCEL_BOOKING") && !type.equals("LOGOUT")) {
-            return new ErrorReply(id, ErrorCode.UNKNOWN_REQUEST_TYPE, "Unknown request type");
-        }
         if (user.isEmpty()) {
             return new ErrorReply(id, ErrorCode.AUTH_REQUIRED, "Login required");
         }
         return switch (type) {
+            case "GET_SHOWS", "GET_SHOW_DETAILS" -> {
+                if (!(reservations instanceof CatalogService catalog)) {
+                    yield new ErrorReply(id, ErrorCode.UNKNOWN_REQUEST_TYPE, "Catalog unavailable");
+                }
+                if (type.equals("GET_SHOWS")) {
+                    yield new ShowListReply(id, catalog.getShows());
+                }
+                yield catalog.getShowDetails(required(frame, "showId"))
+                    .<ReplyMessage>map(show -> new ShowDetailsReply(id, show))
+                    .orElseGet(() -> new ErrorReply(id, ErrorCode.SHOW_NOT_FOUND, "Unknown show"));
+            }
             case "GET_SEATS" -> {
-                var result = reservations.snapshot(required(frame, "showId"));
+                String showId = required(frame, "showId");
+                if (reservations instanceof CatalogService catalog && catalog.getShowDetails(showId).isEmpty()) {
+                    yield new ErrorReply(id, ErrorCode.SHOW_NOT_FOUND, "Unknown show");
+                }
+                var result = reservations.snapshot(showId);
                 yield new SeatSnapshotReply(id, result.showId(), result.version(), result.seats());
             }
             case "BOOK_SEAT" -> {
@@ -90,7 +102,7 @@ final class BookingRequestProcessor {
                 context.clearAuthentication();
                 yield new LogoutOkReply(id, "Logged out");
             }
-            default -> throw new IllegalStateException();
+            default -> new ErrorReply(id, ErrorCode.UNKNOWN_REQUEST_TYPE, "Unknown request type");
         };
     }
 

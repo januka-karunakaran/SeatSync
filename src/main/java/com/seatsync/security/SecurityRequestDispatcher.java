@@ -52,7 +52,8 @@ public final class SecurityRequestDispatcher implements RequestDispatcher {
             String type = text(frame, "type");
             Set<String> allowed = switch (type) {
                 case "LOGIN" -> Set.of("type", "requestId", "username", "password");
-                case "GET_SEATS" -> Set.of("type", "requestId", "showId");
+                case "GET_SHOWS" -> Set.of("type", "requestId");
+                case "GET_SEATS", "GET_SHOW_DETAILS" -> Set.of("type", "requestId", "showId");
                 case "BOOK_SEAT" -> Set.of("type", "requestId", "showId", "seatId");
                 case "CANCEL_BOOKING" -> Set.of("type", "requestId", "bookingId");
                 case "LOGOUT" -> Set.of("type", "requestId");
@@ -94,13 +95,12 @@ public final class SecurityRequestDispatcher implements RequestDispatcher {
                 sendError(context, id, ErrorCode.AUTH_REQUIRED, "Login required");
                 return;
             }
-            if ("GET_SEATS".equals(type) || "BOOK_SEAT".equals(type)) {
-                if (!ProtocolConstants.DEFAULT_SHOW_ID.equals(text(frame, "showId"))) {
-                    sendError(context, id, ErrorCode.SHOW_NOT_FOUND, "Show not found");
-                    return;
+            if ("GET_SEATS".equals(type) || "GET_SHOW_DETAILS".equals(type) || "BOOK_SEAT".equals(type)) {
+                if (text(frame, "showId").isBlank()) {
+                    throw new InvalidRequest();
                 }
             }
-            if ("BOOK_SEAT".equals(type) && !InputValidator.seatId(text(frame, "seatId"))) {
+            if ("BOOK_SEAT".equals(type) && !text(frame, "seatId").matches("[A-Z][1-9][0-9]*")) {
                 sendError(context, id, ErrorCode.SEAT_NOT_FOUND, "Invalid seat ID");
                 return;
             }

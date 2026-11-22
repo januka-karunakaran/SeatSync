@@ -15,7 +15,18 @@ import com.seatsync.common.protocol.reply.LoginOkReply;
 import com.seatsync.common.protocol.request.BookSeatRequest;
 import com.seatsync.common.protocol.request.CancelBookingRequest;
 import com.seatsync.common.protocol.request.LoginRequest;
+import com.seatsync.concurrency.BookingRequestProcessor;
 import com.seatsync.concurrency.WorkerRequestDispatcher;
+import com.seatsync.security.AuthorizationService;
+import com.seatsync.security.SecurityRequestDispatcher;
+import com.seatsync.common.contracts.AuthService;
+import com.seatsync.common.protocol.request.GetShowsRequest;
+import com.seatsync.common.protocol.request.GetShowDetailsRequest;
+import com.seatsync.common.protocol.request.GetSeatsRequest;
+import com.seatsync.common.protocol.reply.ShowListReply;
+import com.seatsync.common.protocol.reply.ShowDetailsReply;
+import com.seatsync.common.protocol.reply.ErrorReply;
+import com.seatsync.common.protocol.reply.SeatSnapshotReply;
 import com.seatsync.network.NioBookingServer;
 import com.seatsync.network.ServerConfig;
 import java.util.concurrent.BlockingQueue;
@@ -41,6 +52,49 @@ class ReservationServerIntegrationTest {
         assertEquals(version, event.version());
         assertEquals(40, event.seats().size());
         assertEquals(status, event.seats().get(4).status());
+    }
+
+    @Test
+    void catalogAndSeatInventoriesAreIsolatedThroughTheAuthenticatedServer() throws Exception {
+        var service = new InMemoryReservationService();
+        AuthService auth = (user, password) -> AuthResult.ok("id-" + user, user, "ok");
+        var gate = new SecurityRequestDispatcher(auth, new AuthorizationService(), new BookingRequestProcessor(auth, service));
+        try (var dispatcher = new WorkerRequestDispatcher(gate)) {
+            var server = new NioBookingServer(ServerConfig.of("127.0.0.1", 0), dispatcher);
+            try {
+                server.start();
+                try (var client = new TcpClient("127.0.0.1", server.getPort())) {
+                    client.connect(2000);
+                    assertInstanceOf(LoginOkReply.class, client.sendRequest(new LoginRequest("l", "alice", "test"))
+                        .get(5, TimeUnit.SECONDS));
+                    var details = assertInstanceOf(ShowDetailsReply.class, client.sendRequest(
+                        new GetShowDetailsRequest("d", "SHOW-02")).get(5, TimeUnit.SECONDS));
+                    assertEquals(120, details.showDetails().layout().totalCapacity());
+                    var unknown = assertInstanceOf(ErrorReply.class, client.sendRequest(
+                        new GetShowDetailsRequest("x", "missing")).get(5, TimeUnit.SECONDS));
+                    assertEquals(ErrorCode.SHOW_NOT_FOUND, unknown.errorCode());
+                    var first = assertInstanceOf(BookOkReply.class, client.sendRequest(
+                        new BookSeatRequest("a", "SHOW-01", "A1")).get(5, TimeUnit.SECONDS));
+                    assertInstanceOf(BookOkReply.class, client.sendRequest(
+                        new BookSeatRequest("b", "SHOW-02", "A1")).get(5, TimeUnit.SECONDS));
+                    assertInstanceOf(BookOkReply.class, client.sendRequest(
+                        new BookSeatRequest("c", "SHOW-02", "J12")).get(5, TimeUnit.SECONDS));
+                    assertInstanceOf(CancelOkReply.class, client.sendRequest(
+                        new CancelBookingRequest("cancel", first.bookingId())).get(5, TimeUnit.SECONDS));
+                    var list = assertInstanceOf(ShowListReply.class, client.sendRequest(
+                        new GetShowsRequest("list")).get(5, TimeUnit.SECONDS));
+                    assertEquals(40, list.shows().get(0).availableSeats());
+                    assertEquals(118, list.shows().get(1).availableSeats());
+                    var snapshot = assertInstanceOf(SeatSnapshotReply.class, client.sendRequest(
+                        new GetSeatsRequest("map", "SHOW-02")).get(5, TimeUnit.SECONDS));
+                    assertEquals(120, snapshot.seats().size());
+                    assertEquals(SeatStatus.BOOKED, snapshot.seats().get(0).status());
+                    assertEquals(2, snapshot.version());
+                }
+            } finally {
+                server.stop();
+            }
+        }
     }
 
     @Test

@@ -4,9 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.seatsync.common.contracts.RequestContext;
 import com.seatsync.common.contracts.RequestDispatcher;
 import com.seatsync.common.model.ErrorCode;
+import com.seatsync.common.model.NetworkMetricsSnapshot;
 import com.seatsync.common.model.ProtocolConstants;
 import com.seatsync.common.model.SeatStatus;
 import com.seatsync.common.model.SeatView;
+import com.seatsync.common.model.ServerMetricSnapshot;
 import com.seatsync.common.protocol.MessageType;
 import com.seatsync.common.protocol.ProtocolJson;
 import com.seatsync.common.protocol.event.SeatUpdatedEvent;
@@ -17,7 +19,10 @@ import com.seatsync.common.protocol.reply.CancelRejectedReply;
 import com.seatsync.common.protocol.reply.ErrorReply;
 import com.seatsync.common.protocol.reply.LoginOkReply;
 import com.seatsync.common.protocol.reply.LogoutOkReply;
+import com.seatsync.common.protocol.reply.NetworkMetricsReply;
 import com.seatsync.common.protocol.reply.SeatSnapshotReply;
+import com.seatsync.common.protocol.reply.ServerMetricsReply;
+import com.seatsync.network.metrics.NetworkMetricsTracker;
 import com.seatsync.security.AuthorizationService;
 
 import java.util.ArrayList;
@@ -41,12 +46,18 @@ public class MockRequestDispatcher implements RequestDispatcher {
     private final Map<String, String> bookingOwners = new ConcurrentHashMap<>();
     private final AtomicLong version = new AtomicLong(1);
     private final AuthorizationService authorization = new AuthorizationService();
+    private final NetworkMetricsTracker metricsTracker;
     private Consumer<String> broadcaster;
 
-    public MockRequestDispatcher() {
+    public MockRequestDispatcher(NetworkMetricsTracker metricsTracker) {
+        this.metricsTracker = metricsTracker;
         for (String seatId : ProtocolConstants.VALID_SEAT_IDS) {
             seatState.put(seatId, SeatView.available(seatId));
         }
+    }
+
+    public MockRequestDispatcher() {
+        this(null);
     }
 
     public void setBroadcaster(Consumer<String> broadcaster) {
@@ -105,7 +116,8 @@ public class MockRequestDispatcher implements RequestDispatcher {
         switch (type) {
             case LOGIN -> {
                 String username = root.path("username").asText("guest").trim();
-                String userId = "USR-" + Math.abs(username.hashCode() % 1000);
+                String prefix = username.toLowerCase().contains("admin") ? "ADM-" : "USR-";
+                String userId = prefix + Math.abs(username.hashCode() % 1000);
                 context.setAuthenticatedUserId(userId);
                 LoginOkReply reply = new LoginOkReply(requestId, userId, username);
                 context.send(ProtocolJson.serialize(reply));
@@ -254,6 +266,39 @@ public class MockRequestDispatcher implements RequestDispatcher {
             case LOGOUT -> {
                 context.clearAuthentication();
                 LogoutOkReply reply = new LogoutOkReply(requestId, "Session terminated");
+                context.send(ProtocolJson.serialize(reply));
+            }
+            case GET_NETWORK_METRICS -> {
+                if (!context.isAuthenticated()) {
+                    ErrorReply error = new ErrorReply(
+                        requestId,
+                        ErrorCode.AUTH_REQUIRED,
+                        "Authentication required to access network metrics"
+                    );
+                    context.send(ProtocolJson.serialize(error));
+                    return;
+                }
+                String userId = context.getAuthenticatedUserId().orElse("");
+                if (!userId.startsWith("ADM-") && !userId.toLowerCase().contains("admin")) {
+                    ErrorReply error = new ErrorReply(
+                        requestId,
+                        ErrorCode.FORBIDDEN_ROLE,
+                        "Only ADMIN role may access network telemetry metrics"
+                    );
+                    context.send(ProtocolJson.serialize(error));
+                    return;
+                }
+                NetworkMetricsSnapshot snapshot = metricsTracker != null
+                    ? metricsTracker.getNetworkMetricsSnapshot()
+                    : new NetworkMetricsSnapshot(0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, System.currentTimeMillis());
+                NetworkMetricsReply reply = new NetworkMetricsReply(requestId, snapshot);
+                context.send(ProtocolJson.serialize(reply));
+            }
+            case GET_SERVER_METRICS -> {
+                ServerMetricSnapshot snapshot = metricsTracker != null
+                    ? metricsTracker.getMetricsSnapshot()
+                    : new ServerMetricSnapshot(0, 0, 0, 0, 0, 0, 0.0, 0);
+                ServerMetricsReply reply = new ServerMetricsReply(requestId, snapshot);
                 context.send(ProtocolJson.serialize(reply));
             }
             default -> {

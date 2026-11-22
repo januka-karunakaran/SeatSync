@@ -1,5 +1,7 @@
 package com.seatsync.network;
 
+import com.seatsync.network.metrics.NetworkMetricsTracker;
+
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -12,6 +14,15 @@ import java.util.concurrent.ConcurrentMap;
 public class ClientSessionRegistry {
 
     private final ConcurrentMap<String, ClientSession> sessions = new ConcurrentHashMap<>();
+    private final NetworkMetricsTracker metricsTracker;
+
+    public ClientSessionRegistry(NetworkMetricsTracker metricsTracker) {
+        this.metricsTracker = metricsTracker;
+    }
+
+    public ClientSessionRegistry() {
+        this(null);
+    }
 
     /**
      * Registers a newly accepted client session.
@@ -82,6 +93,9 @@ public class ClientSessionRegistry {
      * @param jsonLine Line of JSON to transmit
      */
     public void broadcast(String jsonLine) {
+        if (metricsTracker != null) {
+            metricsTracker.recordBroadcast();
+        }
         for (ClientSession session : sessions.values()) {
             if (session.isOpen()) {
                 session.send(jsonLine);

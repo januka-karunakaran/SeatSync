@@ -6,6 +6,7 @@ import com.seatsync.common.model.ErrorCode;
 import com.seatsync.common.model.ProtocolConstants;
 import com.seatsync.common.protocol.ProtocolJson;
 import com.seatsync.common.protocol.reply.ErrorReply;
+import com.seatsync.network.metrics.NetworkMetricsTracker;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -39,16 +40,29 @@ public class ClientSession implements RequestContext {
     private final ConcurrentLinkedQueue<ByteBuffer> outboundQueue = new ConcurrentLinkedQueue<>();
     private final AtomicReference<String> authenticatedUserId = new AtomicReference<>(null);
     private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final NetworkMetricsTracker metricsTracker;
+    private final long connectedAtMs = System.currentTimeMillis();
 
     private volatile SelectionKey selectionKey;
     private ByteBuffer currentWriteBuffer = null;
 
-    public ClientSession(SocketChannel channel, NioBookingServer server, int maxFrameBytes, int readBufferSize) {
+    public ClientSession(
+        SocketChannel channel,
+        NioBookingServer server,
+        int maxFrameBytes,
+        int readBufferSize,
+        NetworkMetricsTracker metricsTracker
+    ) {
         this.sessionId = UUID.randomUUID().toString();
         this.channel = channel;
         this.server = server;
         this.maxFrameBytes = maxFrameBytes;
         this.readBuffer = ByteBuffer.allocate(readBufferSize);
+        this.metricsTracker = metricsTracker;
+    }
+
+    public ClientSession(SocketChannel channel, NioBookingServer server, int maxFrameBytes, int readBufferSize) {
+        this(channel, server, maxFrameBytes, readBufferSize, null);
     }
 
     public void setSelectionKey(SelectionKey key) {
@@ -125,6 +139,10 @@ public class ClientSession implements RequestContext {
         readBuffer.clear();
         int bytesRead = channel.read(readBuffer);
 
+        if (bytesRead > 0 && metricsTracker != null) {
+            metricsTracker.recordBytesIn(bytesRead);
+        }
+
         if (bytesRead == -1) {
             // EOF: client gracefully disconnected or closed socket
             close();
@@ -179,6 +197,9 @@ public class ClientSession implements RequestContext {
                 }
 
                 // Dispatch to business layer
+                if (metricsTracker != null) {
+                    metricsTracker.recordJsonFrame();
+                }
                 if (dispatcher != null) {
                     dispatcher.dispatch(this, line);
                 }
@@ -214,6 +235,9 @@ public class ClientSession implements RequestContext {
             }
 
             int written = channel.write(currentWriteBuffer);
+            if (written > 0 && metricsTracker != null) {
+                metricsTracker.recordBytesOut(written);
+            }
             if (written == 0) {
                 // OS socket buffer full, cannot write more right now
                 enableWriteInterest();
@@ -248,6 +272,9 @@ public class ClientSession implements RequestContext {
     }
 
     private void sendPayloadTooLargeAndClose() {
+        if (metricsTracker != null) {
+            metricsTracker.recordRejectedFrame();
+        }
         try {
             ErrorReply reply = new ErrorReply(
                 "N/A",
@@ -274,6 +301,9 @@ public class ClientSession implements RequestContext {
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {
+            if (metricsTracker != null) {
+                metricsTracker.recordClosedConnection(System.currentTimeMillis() - connectedAtMs);
+            }
             try {
                 SelectionKey key = this.selectionKey;
                 if (key != null) {

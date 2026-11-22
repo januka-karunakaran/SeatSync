@@ -1,6 +1,7 @@
 package com.seatsync.network;
 
 import com.seatsync.common.contracts.RequestDispatcher;
+import com.seatsync.network.discovery.LanDiscoveryListener;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -30,6 +31,7 @@ public class NioBookingServer {
     private Selector selector;
     private Thread selectorThread;
     private volatile RequestDispatcher requestDispatcher;
+    private LanDiscoveryListener discoveryListener;
 
     public NioBookingServer(ServerConfig config, RequestDispatcher requestDispatcher) {
         this.config = Objects.requireNonNull(config, "config must not be null");
@@ -58,6 +60,10 @@ public class NioBookingServer {
 
     public ClientSessionRegistry getSessionRegistry() {
         return sessionRegistry;
+    }
+
+    public LanDiscoveryListener getDiscoveryListener() {
+        return discoveryListener;
     }
 
     public ServerConfig getConfig() {
@@ -89,6 +95,19 @@ public class NioBookingServer {
         selectorThread = new Thread(this::runSelectorLoop, "seatsync-nio-selector");
         selectorThread.setDaemon(true);
         selectorThread.start();
+
+        if (config.udpDiscoveryEnabled()) {
+            discoveryListener = new LanDiscoveryListener(
+                config.udpPort(),
+                config.manualLanIp(),
+                getPort(),
+                false,
+                0,
+                "seatsync-v2",
+                null
+            );
+            discoveryListener.start();
+        }
     }
 
     /**
@@ -104,6 +123,11 @@ public class NioBookingServer {
         }
 
         sessionRegistry.closeAll();
+
+        if (discoveryListener != null) {
+            discoveryListener.close();
+            discoveryListener = null;
+        }
 
         try {
             if (serverSocketChannel != null && serverSocketChannel.isOpen()) {

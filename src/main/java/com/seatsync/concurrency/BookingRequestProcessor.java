@@ -86,6 +86,7 @@ public final class BookingRequestProcessor implements RequestDispatcher {
                 var result = reservations.snapshot(showId);
                 yield new SeatSnapshotReply(id, result.showId(), result.version(), result.seats());
             }
+            case "HOLD_SEAT", "RELEASE_HOLD", "CONFIRM_HOLD" -> holdReply(type, frame, id, user.get());
             case "BOOK_SEAT" -> {
                 var result = reservations.book(user.get(), required(frame, "showId"), required(frame, "seatId"));
                 yield result.success()
@@ -104,6 +105,36 @@ public final class BookingRequestProcessor implements RequestDispatcher {
             }
             default -> new ErrorReply(id, ErrorCode.UNKNOWN_REQUEST_TYPE, "Unknown request type");
         };
+    }
+
+    private ReplyMessage holdReply(String type, JsonNode frame, String id, String user) {
+        if (!(reservations instanceof HoldService service)) {
+            return new ErrorReply(id, ErrorCode.UNKNOWN_REQUEST_TYPE, "Holds unavailable");
+        }
+        if (type.equals("HOLD_SEAT")) {
+            var duration = frame.get("holdDurationSeconds");
+            if (duration != null && (!duration.isIntegralNumber() || !duration.canConvertToInt())) {
+                throw new InvalidFrame();
+            }
+            long seconds = duration == null ? 120 : duration.intValue();
+            var result = service.holdSeat(user, required(frame, "showId"), required(frame, "seatId"), seconds * 1000);
+            return result.success()
+                ? new HoldOkReply(id, result.holdId(), result.showId(), result.seatId(), result.expiresAt(), result.message())
+                : new HoldRejectedReply(id, result.showId(), result.seatId(), result.errorCode(), result.message());
+        }
+        String holdId = required(frame, "holdId");
+        if (type.equals("RELEASE_HOLD")) {
+            var result = service.releaseHold(user, holdId);
+            return result.success()
+                ? new HoldReleasedOkReply(id, holdId, result.showId(), result.seatId(), result.message())
+                : new HoldReleasedRejectedReply(id, holdId, result.errorCode(), result.message());
+        }
+        var booking = service.confirmHold(user, holdId, required(frame, "idempotencyKey"));
+        // Reserve a stable ticket reference for the subsequent ticket issuance stage.
+        return booking.success()
+            ? new ConfirmOkReply(id, booking.bookingId(), booking.bookingId().replaceFirst("^BKG-", "TCK-"),
+                booking.showId(), booking.seatId(), booking.message())
+            : new ConfirmRejectedReply(id, holdId, booking.errorCode(), booking.message());
     }
 
     private static String required(JsonNode frame, String name) {

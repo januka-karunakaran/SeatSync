@@ -47,3 +47,13 @@ replay_pid*
 *.local
 credentials.json
 token.json
+
+# TLS private material and local certificate generation output
+.local/
+*.p12
+*.pfx
+*.jks
+*.key
+*.pem
+*.crt
+*.cer

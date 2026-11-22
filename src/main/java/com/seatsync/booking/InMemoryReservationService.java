@@ -32,15 +32,24 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import com.seatsync.common.contracts.AdminCatalogOperations;
+import com.seatsync.common.model.MovieDetails;
+import com.seatsync.common.model.AdminBookingView;
+import com.seatsync.common.model.PagedResult;
+import com.seatsync.common.model.AdminOperationException;
+import com.seatsync.common.model.SeatStatus;
+import com.seatsync.common.protocol.event.ShowUpdatedEvent;
 
 /**
  * Authoritative in-memory catalog and inventory for scheduled shows.
  * One lock protects seats, reservations and version as a single transaction.
  * Callers supply identity from RequestContext, never from client JSON.
  */
-public final class InMemoryReservationService implements ReservationService, CatalogService, HoldService, WaitlistService {
+public final class InMemoryReservationService implements ReservationService, CatalogService, HoldService, WaitlistService, AdminCatalogOperations {
     private final Object inventoryLock = new Object();
     private final Map<String, ShowInventory> shows = new LinkedHashMap<>();
+    private final Map<String, MovieDetails> movies = new LinkedHashMap<>();
+    private final List<Consumer<ShowUpdatedEvent>> catalogListeners = new CopyOnWriteArrayList<>();
     private final Map<String, Reservation> reservations = new HashMap<>();
     private final SeatEventPublisher events = new SeatEventPublisher();
     static final long MAX_HOLD_MS = 120_000;
@@ -60,6 +69,8 @@ public final class InMemoryReservationService implements ReservationService, Cat
 
     InMemoryReservationService(ClockService clock) {
         this.clock = clock;
+        movies.put("MOVIE-01", new MovieDetails("MOVIE-01", "The Phantom of the Opera", "Classic Broadway musical", "Musical", 150));
+        movies.put("MOVIE-02", new MovieDetails("MOVIE-02", "Les Mis\u00e9rables", "Musical drama", "Musical", 180));
         var standard = new SeatTier("Standard", TierType.STANDARD, 2500, "Standard admission");
         var premium = new SeatTier("Premium", TierType.PREMIUM, 4000, "Premium admission");
         registerShow(new ShowDetails(ProtocolConstants.DEFAULT_SHOW_ID, "The Phantom of the Opera",
@@ -80,13 +91,16 @@ public final class InMemoryReservationService implements ReservationService, Cat
             if (shows.containsKey(details.showId())) {
                 throw new IllegalArgumentException("Show already registered");
             }
+            if (shows.size() >= 10) { throw new AdminOperationException(ErrorCode.INVALID_STATE, "Show catalog limit reached"); }
             shows.put(details.showId(), new ShowInventory(details));
+            catalogChanged(shows.get(details.showId()));
         }
+        events.drain();
     }
 
     @Override
     public List<ShowSummary> getShows() {
-        return transaction(() -> shows.values().stream().map(ShowInventory::summary).toList());
+        return transaction(() -> shows.values().stream().filter(show -> show.enabled).map(ShowInventory::summary).toList());
     }
 
     @Override
@@ -103,6 +117,8 @@ public final class InMemoryReservationService implements ReservationService, Cat
         // One outstanding private offer per user per show.
         final Map<String, String> offers = new HashMap<>();
         long version;
+        boolean enabled = true;
+        String movieId;
 
         ShowInventory(ShowDetails details) {
             this.details = details;
@@ -116,7 +132,7 @@ public final class InMemoryReservationService implements ReservationService, Cat
         }
 
         ShowSummary summary() {
-            int available = (int) seats.values().stream().filter(Seat::isAvailable).count();
+            int available = enabled ? (int) seats.values().stream().filter(Seat::isAvailable).count() : 0;
             return new ShowSummary(details.showId(), details.title(), details.startTime(), details.venue(),
                 seats.size(), available);
         }
@@ -129,6 +145,15 @@ public final class InMemoryReservationService implements ReservationService, Cat
     public void addSeatChangeListener(SeatChangeListener listener) { events.add(listener); }
     public void removeSeatChangeListener(SeatChangeListener listener) { events.remove(listener); }
 
+    public void addCatalogChangeListener(Consumer<ShowUpdatedEvent> listener) {
+        catalogListeners.add(java.util.Objects.requireNonNull(listener));
+    }
+
+    private void catalogChanged(ShowInventory show) {
+        var event = new ShowUpdatedEvent(show.details.showId(), show.summary(), show.version, show.enabled);
+        for (var listener : catalogListeners) { events.enqueue(() -> listener.accept(event)); }
+    }
+
     @Override
     public BookingResult book(String userId, String showId, String seatId) {
         String normalized = seatId == null ? null : seatId.trim().toUpperCase(Locale.ROOT);
@@ -140,6 +165,7 @@ public final class InMemoryReservationService implements ReservationService, Cat
             if (show == null) {
                 return BookingResult.rejected(showId, normalized, ErrorCode.SHOW_NOT_FOUND, "Unknown show");
             }
+            if (!show.enabled) { return BookingResult.rejected(showId, normalized, ErrorCode.SHOW_DISABLED, "Show disabled"); }
             Seat seat = show.seats.get(normalized);
             if (seat == null) {
                 return BookingResult.rejected(showId, normalized, ErrorCode.SEAT_NOT_FOUND, "Unknown seat");
@@ -234,6 +260,7 @@ public final class InMemoryReservationService implements ReservationService, Cat
             if (show == null) {
                 return HoldResult.rejected(showId, seatId, ErrorCode.SHOW_NOT_FOUND, "Unknown show");
             }
+            if (!show.enabled) { return HoldResult.rejected(showId, seatId, ErrorCode.SHOW_DISABLED, "Show disabled"); }
             var seat = show.seats.get(seatId);
             if (seat == null) {
                 return HoldResult.rejected(showId, seatId, ErrorCode.SEAT_NOT_FOUND, "Unknown seat");
@@ -300,8 +327,10 @@ public final class InMemoryReservationService implements ReservationService, Cat
             }
             var error = holdError(user, holdId);
             if (error != null) { return BookingResult.rejected(null, null, error, "Cannot confirm hold"); }
-            var hold = holds.remove(holdId);
+            var hold = holds.get(holdId);
             var show = shows.get(hold.showId());
+            if (!show.enabled) { return BookingResult.rejected(hold.showId(), hold.seatId(), ErrorCode.SHOW_DISABLED, "Show disabled"); }
+            holds.remove(holdId);
             show.seats.get(hold.seatId()).setHold(null);
             show.offers.remove(user, holdId);
             var result = reserve(show, hold.seatId(), user);
@@ -326,7 +355,7 @@ public final class InMemoryReservationService implements ReservationService, Cat
 
     private void offerOrFree(ShowInventory show, String seatId) {
         var iterator = show.waiting.values().iterator();
-        if (!iterator.hasNext()) {
+        if (!show.enabled || !iterator.hasNext()) {
             changed(show);
             return;
         }
@@ -349,6 +378,7 @@ public final class InMemoryReservationService implements ReservationService, Cat
             }
             var show = shows.get(showId);
             if (show == null) { return WaitlistResult.rejected(showId, ErrorCode.SHOW_NOT_FOUND, "Unknown show"); }
+            if (!show.enabled) { return WaitlistResult.rejected(showId, ErrorCode.SHOW_DISABLED, "Show disabled"); }
             if (show.waiting.containsKey(user) || show.offers.containsKey(user)) {
                 return WaitlistResult.rejected(showId, ErrorCode.ALREADY_ON_WAITLIST, "Already waiting or offered a seat");
             }
@@ -406,5 +436,134 @@ public final class InMemoryReservationService implements ReservationService, Cat
     public Optional<Status> status(String user, String showId) {
         return transaction(() -> Optional.ofNullable(shows.get(showId)).map(show ->
             new Status(entryAtCurrentPosition(show, user).map(WaitlistEntry::position).orElse(-1), show.waiting.size())));
+    }
+
+    @Override public boolean createMovie(MovieDetails movie) {
+        java.util.Objects.requireNonNull(movie);
+        return transaction(() -> {
+            if (movies.containsKey(movie.movieId())) { return false; }
+            if (movies.size() >= 1000) { throw new AdminOperationException(ErrorCode.INVALID_STATE, "Movie catalog limit reached"); }
+            movies.put(movie.movieId(), movie);
+            return true;
+        });
+    }
+
+    @Override public List<MovieDetails> getMovies() {
+        return transaction(() -> List.copyOf(movies.values()));
+    }
+
+    @Override public boolean createShow(String movieId, ShowDetails details) {
+        return transaction(() -> {
+            var movie = movies.get(movieId);
+            if (movie == null) { throw new AdminOperationException(ErrorCode.MOVIE_NOT_FOUND, "Unknown movie"); }
+            if (shows.containsKey(details.showId())) { return false; }
+            var layout = details.layout();
+            if (layout.rowCount() < 1 || layout.rowCount() > 26 || layout.columnCount() < 1
+                    || layout.totalCapacity() > 120 || (long) layout.rowCount() * layout.columnCount() != layout.totalCapacity()) {
+                throw new IllegalArgumentException("Invalid layout");
+            }
+            var start = java.time.Instant.parse(details.startTime());
+            var end = java.time.Instant.parse(details.endTime());
+            if (start.toEpochMilli() <= clock.currentTimeMillis()
+                    || java.time.Duration.between(start, end).toMinutes() < movie.durationMinutes()) {
+                throw new AdminOperationException(ErrorCode.INVALID_STATE, "Show window must cover the movie and start in the future");
+            }
+            for (var existing : shows.values()) {
+                if (existing.enabled && existing.details.venue().trim().equalsIgnoreCase(details.venue().trim())
+                        && start.isBefore(java.time.Instant.parse(existing.details.endTime()))
+                        && end.isAfter(java.time.Instant.parse(existing.details.startTime()))) {
+                    throw new AdminOperationException(ErrorCode.INVALID_STATE, "Venue already scheduled for this time");
+                }
+            }
+            if (shows.size() >= 10) { throw new AdminOperationException(ErrorCode.INVALID_STATE, "Show catalog limit reached"); }
+            var canonical = new ShowDetails(details.showId(), movie.title(), movie.description(), movie.genre(),
+                details.startTime(), details.endTime(), details.venue(), details.layout());
+            var show = new ShowInventory(canonical);
+            show.movieId = movieId;
+            shows.put(canonical.showId(), show);
+            catalogChanged(show);
+            return true;
+        });
+    }
+
+    @Override public boolean disableShow(String showId) {
+        return transaction(() -> {
+            var show = adminShow(showId);
+            if (!show.enabled) { return false; }
+            show.enabled = false;
+            show.waiting.clear();
+            show.offers.clear();
+            for (var hold : List.copyOf(holds.values())) {
+                if (hold.showId().equals(showId)) {
+                    holds.remove(hold.holdId());
+                    show.seats.get(hold.seatId()).setHold(null);
+                }
+            }
+            // Existing confirmed reservations are retained for owner cancellation and admin inspection.
+            changed(show);
+            catalogChanged(show);
+            return true;
+        });
+    }
+
+    @Override public PagedResult<AdminBookingView> listBookings(String showId, int pageNumber, int pageSize) {
+        if (pageNumber < 0 || pageSize < 1 || pageSize > 20) {
+            throw new AdminOperationException(ErrorCode.INVALID_PAGE_SIZE, "Use nonnegative page and page size 1-20");
+        }
+        return transaction(() -> {
+            adminShow(showId);
+            var all = reservations.values().stream().filter(r -> r.showId().equals(showId))
+                .sorted(java.util.Comparator.comparing(Reservation::bookingId)).toList();
+            long offset = (long) pageNumber * pageSize;
+            var page = all.stream().skip(offset).limit(pageSize)
+                .map(r -> new AdminBookingView(r.bookingId(), r.showId(), r.seatId(), r.userId())).toList();
+            return new PagedResult<>(page, pageNumber, pageSize, all.size(), offset + page.size() < all.size());
+        });
+    }
+
+    @Override public boolean overrideSeat(String actorId, String showId, String seatId, SeatStatus status) {
+        return transaction(() -> {
+            var show = adminShow(showId);
+            var seat = show.seats.get(seatId);
+            if (seat == null) { throw new AdminOperationException(ErrorCode.SEAT_NOT_FOUND, "Unknown seat"); }
+            if (status == null || actorId == null || actorId.isBlank()) { throw new IllegalArgumentException("Actor/status required"); }
+            if (status == SeatStatus.AVAILABLE) {
+                if (!show.waiting.isEmpty()) {
+                    throw new AdminOperationException(ErrorCode.INVALID_STATE, "Use cancellation to preserve FIFO waitlist promotion");
+                }
+                if (seat.isAvailable()) { return true; }
+                if (seat.hold() != null) {
+                    var hold = seat.hold();
+                    holds.remove(hold.holdId());
+                    show.offers.remove(hold.heldByUserId(), hold.holdId());
+                    seat.setHold(null);
+                }
+                if (seat.reservation() != null) { reservations.remove(seat.reservation().bookingId()); }
+                seat.release();
+                changed(show);
+                return true;
+            }
+            if (!show.enabled) { throw new AdminOperationException(ErrorCode.SHOW_DISABLED, "Show disabled"); }
+            if (!seat.isAvailable()) { throw new AdminOperationException(ErrorCode.INVALID_STATE, "Seat must be free before admin allocation"); }
+            if (status == SeatStatus.BOOKED) { reserve(show, seatId, actorId); }
+            else if (status == SeatStatus.HELD) { placeHold(actorId, show, seatId, MAX_HOLD_MS); }
+            else { throw new IllegalArgumentException("Unsupported seat state"); }
+            return true;
+        });
+    }
+
+    @Override public boolean forceCancelHold(String holdId) {
+        return transaction(() -> {
+            var hold = holds.get(holdId);
+            if (hold == null) { return false; }
+            releaseLocked(hold);
+            return true;
+        });
+    }
+
+    private ShowInventory adminShow(String showId) {
+        var show = shows.get(showId);
+        if (show == null) { throw new AdminOperationException(ErrorCode.SHOW_NOT_FOUND, "Unknown show"); }
+        return show;
     }
 }

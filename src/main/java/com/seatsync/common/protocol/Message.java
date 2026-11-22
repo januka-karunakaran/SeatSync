@@ -101,6 +101,11 @@ import com.seatsync.common.protocol.request.UnsubscribeEventsRequest;
     @JsonSubTypes.Type(value = GetBookingHistoryRequest.class, name = "GET_BOOKING_HISTORY"),
 
     // V2 Requests: Admin
+    @JsonSubTypes.Type(value = com.seatsync.common.protocol.request.AdminCreateMovieRequest.class, name = "ADMIN_CREATE_MOVIE"),
+    @JsonSubTypes.Type(value = com.seatsync.common.protocol.request.AdminCreateShowRequest.class, name = "ADMIN_CREATE_SHOW"),
+    @JsonSubTypes.Type(value = com.seatsync.common.protocol.request.AdminDisableShowRequest.class, name = "ADMIN_DISABLE_SHOW"),
+    @JsonSubTypes.Type(value = com.seatsync.common.protocol.request.AdminListBookingsRequest.class, name = "ADMIN_LIST_BOOKINGS"),
+    @JsonSubTypes.Type(value = com.seatsync.common.protocol.request.GetMoviesRequest.class, name = "GET_MOVIES"),
     @JsonSubTypes.Type(value = AdminAddShowRequest.class, name = "ADMIN_ADD_SHOW"),
     @JsonSubTypes.Type(value = AdminUpdateSeatStatusRequest.class, name = "ADMIN_UPDATE_SEAT_STATUS"),
     @JsonSubTypes.Type(value = AdminGetAuditLogsRequest.class, name = "ADMIN_GET_AUDIT_LOGS"),
@@ -146,6 +151,10 @@ import com.seatsync.common.protocol.request.UnsubscribeEventsRequest;
     @JsonSubTypes.Type(value = BookingHistoryReply.class, name = "BOOKING_HISTORY_REPLY"),
 
     // V2 Replies: Admin
+    @JsonSubTypes.Type(value = com.seatsync.common.protocol.reply.AdminMovieCreatedReply.class, name = "ADMIN_MOVIE_CREATED"),
+    @JsonSubTypes.Type(value = com.seatsync.common.protocol.reply.AdminShowDisabledReply.class, name = "ADMIN_SHOW_DISABLED"),
+    @JsonSubTypes.Type(value = com.seatsync.common.protocol.reply.AdminBookingsReply.class, name = "ADMIN_BOOKINGS_REPLY"),
+    @JsonSubTypes.Type(value = com.seatsync.common.protocol.reply.MovieListReply.class, name = "MOVIE_LIST_REPLY"),
     @JsonSubTypes.Type(value = AdminShowAddedReply.class, name = "ADMIN_SHOW_ADDED"),
     @JsonSubTypes.Type(value = AdminSeatUpdatedReply.class, name = "ADMIN_SEAT_UPDATED"),
     @JsonSubTypes.Type(value = AdminAuditLogsReply.class, name = "ADMIN_AUDIT_LOGS_REPLY"),

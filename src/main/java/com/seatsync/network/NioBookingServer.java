@@ -340,7 +340,7 @@ public class NioBookingServer {
         metricsTracker.recordAcceptedConnection();
         clientChannel.configureBlocking(false);
 
-        SSLEngine engine = config.sslContext().createSSLEngine();
+        SSLEngine engine = com.seatsync.security.tls.TlsContextFactory.serverEngine(config.sslContext());
         ClientSession session = new ClientSession(
             clientChannel,
             this,

@@ -25,12 +25,19 @@ public final class SecurityRequestDispatcher implements RequestDispatcher {
     private final com.seatsync.common.contracts.AuthService auth;
     private final AuthorizationService authorization;
     private final RequestDispatcher booking;
+    private final SecurityAuditLog audit;
 
     public SecurityRequestDispatcher(com.seatsync.common.contracts.AuthService auth,
             AuthorizationService authorization, RequestDispatcher booking) {
+        this(auth, authorization, booking, new SecurityAuditLog());
+    }
+
+    public SecurityRequestDispatcher(com.seatsync.common.contracts.AuthService auth,
+            AuthorizationService authorization, RequestDispatcher booking, SecurityAuditLog audit) {
         this.auth = Objects.requireNonNull(auth);
         this.authorization = Objects.requireNonNull(authorization);
         this.booking = Objects.requireNonNull(booking);
+        this.audit = Objects.requireNonNull(audit);
     }
 
     @Override
@@ -60,6 +67,20 @@ public final class SecurityRequestDispatcher implements RequestDispatcher {
                 case "BOOK_SEAT" -> Set.of("type", "requestId", "showId", "seatId");
                 case "CANCEL_BOOKING" -> Set.of("type", "requestId", "bookingId");
                 case "LOGOUT" -> Set.of("type", "requestId");
+                case "ADMIN_ADD_SHOW" -> Set.of("type", "requestId", "showDetails");
+                case "ADMIN_CREATE_MOVIE" -> Set.of("type", "requestId", "movie");
+                case "ADMIN_CREATE_SHOW" -> Set.of("type", "requestId", "movieId", "showDetails");
+                case "ADMIN_DISABLE_SHOW" -> Set.of("type", "requestId", "showId");
+                case "ADMIN_LIST_BOOKINGS" -> Set.of("type", "requestId", "showId", "pageNumber", "pageSize");
+                case "GET_MOVIES" -> Set.of("type", "requestId", "pageNumber", "pageSize");
+                case "ADMIN_UPDATE_SEAT_STATUS" -> Set.of("type", "requestId", "showId", "seatId", "status");
+                case "ADMIN_CANCEL_HOLD" -> Set.of("type", "requestId", "holdId", "reason");
+                case "ADMIN_GET_AUDIT_LOGS" -> Set.of("type", "requestId", "limit");
+                case "GET_NETWORK_METRICS", "GET_SERVER_METRICS" -> Set.of("type", "requestId");
+                case "SUBSCRIBE_EVENTS", "UNSUBSCRIBE_EVENTS" ->
+                    Set.of("type", "requestId", "showId");
+                case "GET_TICKET" -> Set.of("type", "requestId", "ticketId");
+                case "GET_BOOKING_HISTORY" -> Set.of("type", "requestId", "pageNumber", "pageSize");
                 default -> null;
             };
             if (allowed == null) {
@@ -84,8 +105,11 @@ public final class SecurityRequestDispatcher implements RequestDispatcher {
                     var result = auth.login(username, password);
                     if (result.success()) {
                         context.setAuthenticatedUserId(result.userId());
-                        context.send(ProtocolJson.serialize(new LoginOkReply(id, result.userId(), result.username())));
+                        audit.record(result.userId(), "LOGIN", id, SecurityAuditLog.Outcome.SUCCESS);
+                        context.send(ProtocolJson.serialize(new LoginOkReply(id, result.userId(), result.username(),
+                            authorization.roleOf(context).orElse(com.seatsync.common.model.UserRole.CUSTOMER))));
                     } else {
+                        audit.record("anonymous", "LOGIN", id, SecurityAuditLog.Outcome.DENIED);
                         context.send(ProtocolJson.serialize(new LoginFailedReply(id, ErrorCode.INVALID_CREDENTIALS,
                             "Username or password incorrect")));
                     }
@@ -95,7 +119,14 @@ public final class SecurityRequestDispatcher implements RequestDispatcher {
                 return;
             }
             if (!authorization.isAuthenticated(context)) {
+                audit.record("anonymous", "AUTHORIZATION", id, SecurityAuditLog.Outcome.DENIED);
                 sendError(context, id, ErrorCode.AUTH_REQUIRED, "Login required");
+                return;
+            }
+            if ((type.startsWith("ADMIN_") || type.equals("GET_NETWORK_METRICS") || type.equals("GET_SERVER_METRICS"))
+                    && !authorization.isAdmin(context.getAuthenticatedUserId().orElse(null))) {
+                audit.record(context.getAuthenticatedUserId().orElse("anonymous"), type, id, SecurityAuditLog.Outcome.DENIED);
+                sendError(context, id, ErrorCode.FORBIDDEN_ROLE, "Administrator permission required");
                 return;
             }
             if ("GET_SEATS".equals(type) || "GET_SHOW_DETAILS".equals(type) || "BOOK_SEAT".equals(type)) {
@@ -112,6 +143,8 @@ public final class SecurityRequestDispatcher implements RequestDispatcher {
             }
             booking.dispatch(context, jsonLine);
         } catch (JsonProcessingException | InvalidRequest e) {
+            audit.record(context.getAuthenticatedUserId().orElse("anonymous"), "REQUEST_VALIDATION", id,
+                SecurityAuditLog.Outcome.INVALID);
             sendError(context, id, ErrorCode.INVALID_REQUEST_FORMAT, "Invalid request fields or JSON");
         } catch (RuntimeException e) {
             LOG.severe("Security request processing failed");

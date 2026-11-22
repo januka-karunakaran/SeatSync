@@ -1,5 +1,9 @@
 # SeatSync 2.0 Wire Protocol Specification
 
+> An additive, user-authorized Member 04 amendment is documented in
+> [V2_ADMIN_PROTOCOL.md](V2_ADMIN_PROTOCOL.md): movie/show creation, show disabling,
+> admin booking pages, movie browsing, role-bearing login and lifecycle event flags.
+
 ## 1. Framing & Transport Rules (Preserved from V1)
 
 1. **Wire Framing:** UTF-8 character encoding throughout all payloads.

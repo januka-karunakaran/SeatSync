@@ -1,0 +1,36 @@
+Actual Maven Surefire results, 22 November 2026 (Asia/Colombo).
+Command: mvn -B -o -Dmaven.repo.local=C:\Users\Jogeesan\.m2\repository clean test
+Full suite: 104 tests; 0 failures; 0 errors; 0 skipped.
+
+com.seatsync.security.AdminSecurityTest
+tests=8, failures=0, errors=0, skipped=0
+PASS: auditIsBoundedImmutableAndDoesNotRetainRequestSecrets
+PASS: everyAdminRouteAndMetricsGateDenyCustomersAndAnonymous
+PASS: showPolicyRejectsBadTimesCapacityAndNegativeStateTransitions
+PASS: loginBindsAdminIdentityOnlyAfterCorrectPasswordAndLogoutRevokesAccess
+PASS: adminCanReleaseAnotherUsersHoldThroughAtomicBookingBackend
+PASS: forgedActorRoleAndMalformedAdminPayloadNeverReachMutation
+PASS: rolesComeFromServerAccountsAndLegacyDefaultsAreCustomers
+PASS: validAdminCreationUsesRealCatalogAndEmitsOneCallback
+
+com.seatsync.security.ExtendedAdminFlowTest
+tests=5, failures=0, errors=0, skipped=0
+PASS: eachExtendedAdminCommandDeniesWrongRoleAndMissingIdentity
+PASS: malformedMovieUnknownMovieAndInvalidPaginationReturnStructuredErrors
+PASS: adminCreatesMovieAndLinkedShowThenDisablesItAndReadsBookings
+PASS: customerMovieBrowsingIsPagedButAdministrativeOwnersStayPrivate
+PASS: actualSeatOverridesMaintainBookingAndHoldIndexes
+
+com.seatsync.booking.AdminInventoryTest
+tests=6, failures=0, errors=0, skipped=0
+PASS: concurrentMovieAndShowCreationHaveOneWinnerAndOneCatalogEvent
+PASS: venueOverlapAndTooShortMovieWindowAreRejectedAtomically
+PASS: disablingClearsHoldsAndWaitlistWithoutPromotingAndPreservesConfirmedBookings
+PASS: overrideAndCustomerBookingRaceKeepOneReservationAndNoStaleIndex
+PASS: forcedHoldReleasePromotesFifoAndOverrideCannotSkipWaitingUsers
+PASS: disableAndConfirmRaceNeverLeavesAConfirmedHoldOrNewAllocationAfterDisable
+
+com.seatsync.common.AdminProtocolExtensionTest
+tests=2, failures=0, errors=0, skipped=0
+PASS: additiveRoleAndShowLifecycleFieldsPreserveLegacyMessages
+PASS: newCommandsAndRepliesRoundTripWithOneDiscriminator

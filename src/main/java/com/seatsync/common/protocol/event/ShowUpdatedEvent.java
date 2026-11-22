@@ -11,11 +11,17 @@ import java.util.Objects;
 public record ShowUpdatedEvent(
     String showId,
     ShowSummary summary,
-    long version
+    long version,
+    Boolean enabled
 ) implements Message {
     public ShowUpdatedEvent {
         Objects.requireNonNull(showId, "showId must not be null");
         Objects.requireNonNull(summary, "summary must not be null");
+        enabled = enabled == null ? Boolean.TRUE : enabled;
+    }
+
+    public ShowUpdatedEvent(String showId, ShowSummary summary, long version) {
+        this(showId, summary, version, true);
     }
 
     @Override

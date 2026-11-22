@@ -16,6 +16,7 @@ final class Seat {
     void setHold(SeatHold value) { hold = value; }
     void reserve(Reservation value) { reservation = value; }
     void release() { reservation = null; }
+    Reservation reservation() { return reservation; }
 
     SeatView view() {
         if (hold != null) { return SeatView.held(id, null); }

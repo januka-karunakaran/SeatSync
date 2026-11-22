@@ -1,9 +1,12 @@
 package com.seatsync.network;
 
 import com.seatsync.common.contracts.RequestDispatcher;
+import com.seatsync.common.model.TlsConfigMode;
 import com.seatsync.network.discovery.LanDiscoveryListener;
 import com.seatsync.network.metrics.NetworkMetricsTracker;
+import com.seatsync.network.tls.TlsHandler;
 
+import javax.net.ssl.SSLEngine;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.ClosedSelectorException;
@@ -29,7 +32,10 @@ public class NioBookingServer {
     private final ConcurrentLinkedQueue<ClientSession> pendingWriteSessions = new ConcurrentLinkedQueue<>();
     private final AtomicBoolean running = new AtomicBoolean(false);
 
+    private enum PortType { PLAINTEXT, TLS }
+
     private ServerSocketChannel serverSocketChannel;
+    private ServerSocketChannel secureServerSocketChannel;
     private Selector selector;
     private Thread selectorThread;
     private volatile RequestDispatcher requestDispatcher;
@@ -96,12 +102,21 @@ public class NioBookingServer {
             return;
         }
 
-        serverSocketChannel = ServerSocketChannel.open();
-        serverSocketChannel.configureBlocking(false);
-        serverSocketChannel.bind(new InetSocketAddress(config.host(), config.port()));
-
         selector = Selector.open();
-        serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
+
+        if (config.tlsMode() != TlsConfigMode.REQUIRED) {
+            serverSocketChannel = ServerSocketChannel.open();
+            serverSocketChannel.configureBlocking(false);
+            serverSocketChannel.bind(new InetSocketAddress(config.host(), config.port()));
+            serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT, PortType.PLAINTEXT);
+        }
+
+        if (config.tlsMode() != TlsConfigMode.DISABLED && config.sslContext() != null) {
+            secureServerSocketChannel = ServerSocketChannel.open();
+            secureServerSocketChannel.configureBlocking(false);
+            secureServerSocketChannel.bind(new InetSocketAddress(config.host(), config.tlsPort()));
+            secureServerSocketChannel.register(selector, SelectionKey.OP_ACCEPT, PortType.TLS);
+        }
 
         running.set(true);
         selectorThread = new Thread(this::runSelectorLoop, "seatsync-nio-selector");
@@ -144,6 +159,13 @@ public class NioBookingServer {
         try {
             if (serverSocketChannel != null && serverSocketChannel.isOpen()) {
                 serverSocketChannel.close();
+            }
+        } catch (IOException ignored) {
+        }
+
+        try {
+            if (secureServerSocketChannel != null && secureServerSocketChannel.isOpen()) {
+                secureServerSocketChannel.close();
             }
         } catch (IOException ignored) {
         }
@@ -194,6 +216,21 @@ public class NioBookingServer {
     }
 
     /**
+     * Retrieves the actual TLS port bound by this server (useful when testing with port 0).
+     *
+     * @return Local secure TLS port number
+     */
+    public int getTlsPort() {
+        if (secureServerSocketChannel != null && secureServerSocketChannel.isOpen()) {
+            try {
+                return ((InetSocketAddress) secureServerSocketChannel.getLocalAddress()).getPort();
+            } catch (IOException ignored) {
+            }
+        }
+        return config.tlsPort();
+    }
+
+    /**
      * Main single-threaded event loop processing NIO selector readiness.
      */
     private void runSelectorLoop() {
@@ -223,7 +260,7 @@ public class NioBookingServer {
                     }
 
                     if (key.isAcceptable()) {
-                        handleAccept();
+                        handleAccept(key);
                     }
 
                     if (key.isValid() && key.isReadable()) {
@@ -258,7 +295,19 @@ public class NioBookingServer {
         }
     }
 
-    private void handleAccept() throws IOException {
+    private void handleAccept(SelectionKey key) throws IOException {
+        PortType type = (PortType) key.attachment();
+        if (type == PortType.TLS) {
+            handleSecureAccept();
+        } else {
+            handlePlainAccept();
+        }
+    }
+
+    private void handlePlainAccept() throws IOException {
+        if (serverSocketChannel == null) {
+            return;
+        }
         SocketChannel clientChannel = serverSocketChannel.accept();
         if (clientChannel == null) {
             return;
@@ -274,9 +323,38 @@ public class NioBookingServer {
             metricsTracker
         );
 
-        SelectionKey key = clientChannel.register(selector, SelectionKey.OP_READ, session);
-        session.setSelectionKey(key);
+        SelectionKey clientKey = clientChannel.register(selector, SelectionKey.OP_READ, session);
+        session.setSelectionKey(clientKey);
         sessionRegistry.register(session);
+    }
+
+    private void handleSecureAccept() throws IOException {
+        if (secureServerSocketChannel == null) {
+            return;
+        }
+        SocketChannel clientChannel = secureServerSocketChannel.accept();
+        if (clientChannel == null) {
+            return;
+        }
+
+        metricsTracker.recordAcceptedConnection();
+        clientChannel.configureBlocking(false);
+
+        SSLEngine engine = config.sslContext().createSSLEngine();
+        ClientSession session = new ClientSession(
+            clientChannel,
+            this,
+            config.maxFrameBytes(),
+            config.readBufferBytes(),
+            metricsTracker
+        );
+        TlsHandler tlsHandler = new TlsHandler(clientChannel, engine, session, this);
+        session.setTlsHandler(tlsHandler);
+
+        SelectionKey clientKey = clientChannel.register(selector, SelectionKey.OP_READ, session);
+        session.setSelectionKey(clientKey);
+        sessionRegistry.register(session);
+        tlsHandler.startHandshake();
     }
 
     private void handleRead(SelectionKey key) {

@@ -7,6 +7,7 @@ import com.seatsync.common.model.ProtocolConstants;
 import com.seatsync.common.protocol.ProtocolJson;
 import com.seatsync.common.protocol.reply.ErrorReply;
 import com.seatsync.network.metrics.NetworkMetricsTracker;
+import com.seatsync.network.tls.TlsHandler;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -44,6 +45,7 @@ public class ClientSession implements RequestContext {
     private final long connectedAtMs = System.currentTimeMillis();
 
     private volatile SelectionKey selectionKey;
+    private volatile TlsHandler tlsHandler;
     private ByteBuffer currentWriteBuffer = null;
 
     public ClientSession(
@@ -71,6 +73,18 @@ public class ClientSession implements RequestContext {
 
     public SelectionKey getSelectionKey() {
         return selectionKey;
+    }
+
+    public void setTlsHandler(TlsHandler tlsHandler) {
+        this.tlsHandler = tlsHandler;
+    }
+
+    public TlsHandler getTlsHandler() {
+        return tlsHandler;
+    }
+
+    public boolean isTls() {
+        return tlsHandler != null;
     }
 
     public SocketChannel getChannel() {
@@ -121,8 +135,12 @@ public class ClientSession implements RequestContext {
         byte[] bytes = wireLine.getBytes(ProtocolConstants.CHARSET);
         ByteBuffer buffer = ByteBuffer.wrap(bytes);
 
-        outboundQueue.offer(buffer);
-        server.scheduleWrite(this);
+        if (tlsHandler != null) {
+            tlsHandler.enqueuePlaintext(buffer);
+        } else {
+            outboundQueue.offer(buffer);
+            server.scheduleWrite(this);
+        }
     }
 
     /**
@@ -133,6 +151,19 @@ public class ClientSession implements RequestContext {
      */
     public void handleRead(RequestDispatcher dispatcher) throws IOException {
         if (!isOpen()) {
+            return;
+        }
+
+        if (tlsHandler != null) {
+            int decrypted = tlsHandler.readAndDecrypt(plaintextBuf -> {
+                if (metricsTracker != null) {
+                    metricsTracker.recordBytesIn(plaintextBuf.remaining());
+                }
+                processIncomingBytes(plaintextBuf, dispatcher);
+            });
+            if (decrypted == -1) {
+                close();
+            }
             return;
         }
 
@@ -154,12 +185,16 @@ public class ClientSession implements RequestContext {
         }
 
         readBuffer.flip();
+        processIncomingBytes(readBuffer, dispatcher);
+    }
+
+    private void processIncomingBytes(ByteBuffer buffer, RequestDispatcher dispatcher) {
         CharsetDecoder decoder = ProtocolConstants.CHARSET.newDecoder()
             .onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT);
 
-        while (readBuffer.hasRemaining()) {
-            byte b = readBuffer.get();
+        while (buffer.hasRemaining()) {
+            byte b = buffer.get();
             if (b == '\n') {
                 // Line terminator encountered
                 byte[] lineBytes = inputAccumulator.toByteArray();
@@ -221,6 +256,11 @@ public class ClientSession implements RequestContext {
      */
     public void handleWrite() throws IOException {
         if (!isOpen()) {
+            return;
+        }
+
+        if (tlsHandler != null) {
+            tlsHandler.handleWrite();
             return;
         }
 
@@ -301,6 +341,12 @@ public class ClientSession implements RequestContext {
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {
+            if (tlsHandler != null) {
+                try {
+                    tlsHandler.close();
+                } catch (Exception ignored) {
+                }
+            }
             if (metricsTracker != null) {
                 metricsTracker.recordClosedConnection(System.currentTimeMillis() - connectedAtMs);
             }

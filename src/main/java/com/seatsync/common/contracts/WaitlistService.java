@@ -41,4 +41,9 @@ public interface WaitlistService {
      * @return Current 1-based queue position for the user, or -1 if not enqueued
      */
     int getQueuePosition(String userId, String showId);
+
+    record Status(int position, int totalWaitlistSize) {}
+
+    /** Returns position and queue size from one point in time, empty for an unknown show. */
+    Optional<Status> status(String userId, String showId);
 }

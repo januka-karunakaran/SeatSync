@@ -19,6 +19,12 @@ import com.seatsync.common.model.SeatHold;
 import com.seatsync.common.model.HoldResult;
 import com.seatsync.common.model.ReleaseResult;
 import java.util.function.Supplier;
+import com.seatsync.common.contracts.WaitlistService;
+import com.seatsync.common.model.WaitlistEntry;
+import com.seatsync.common.model.WaitlistResult;
+import com.seatsync.common.protocol.event.WaitlistPromotedEvent;
+import java.util.function.Consumer;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.HashMap;
@@ -32,12 +38,15 @@ import java.util.UUID;
  * One lock protects seats, reservations and version as a single transaction.
  * Callers supply identity from RequestContext, never from client JSON.
  */
-public final class InMemoryReservationService implements ReservationService, CatalogService, HoldService {
+public final class InMemoryReservationService implements ReservationService, CatalogService, HoldService, WaitlistService {
     private final Object inventoryLock = new Object();
     private final Map<String, ShowInventory> shows = new LinkedHashMap<>();
     private final Map<String, Reservation> reservations = new HashMap<>();
     private final SeatEventPublisher events = new SeatEventPublisher();
     static final long MAX_HOLD_MS = 120_000;
+    static final long OFFER_MS = 30_000;
+    private static final int MAX_WAITLIST = 100;
+    private final List<Consumer<WaitlistPromotedEvent>> offerListeners = new CopyOnWriteArrayList<>();
     private final ClockService clock;
     private final Map<String, SeatHold> holds = new LinkedHashMap<>();
     private final Map<String, Long> expired = new HashMap<>();
@@ -90,6 +99,9 @@ public final class InMemoryReservationService implements ReservationService, Cat
     private static final class ShowInventory {
         final ShowDetails details;
         final Map<String, Seat> seats = new LinkedHashMap<>();
+        final Map<String, WaitlistEntry> waiting = new LinkedHashMap<>();
+        // One outstanding private offer per user per show.
+        final Map<String, String> offers = new HashMap<>();
         long version;
 
         ShowInventory(ShowDetails details) {
@@ -173,7 +185,7 @@ public final class InMemoryReservationService implements ReservationService, Cat
             var show = shows.get(reservation.showId());
             show.seats.get(reservation.seatId()).release();
             reservations.remove(bookingId);
-            changed(show);
+            offerOrFree(show, reservation.seatId());
             return CancelResult.ok(bookingId, reservation.seatId(), "Booking cancelled successfully");
         });
     }
@@ -259,7 +271,8 @@ public final class InMemoryReservationService implements ReservationService, Cat
         var show = shows.get(hold.showId());
         holds.remove(hold.holdId());
         show.seats.get(hold.seatId()).setHold(null);
-        changed(show);
+        show.offers.remove(hold.heldByUserId(), hold.holdId());
+        offerOrFree(show, hold.seatId());
     }
 
     @Override
@@ -290,6 +303,7 @@ public final class InMemoryReservationService implements ReservationService, Cat
             var hold = holds.remove(holdId);
             var show = shows.get(hold.showId());
             show.seats.get(hold.seatId()).setHold(null);
+            show.offers.remove(user, holdId);
             var result = reserve(show, hold.seatId(), user);
             confirmations.put(replayKey, new Confirmation(holdId, result));
             return result;
@@ -304,5 +318,93 @@ public final class InMemoryReservationService implements ReservationService, Cat
     @Override
     public List<SeatHold> getActiveHolds(String showId) {
         return transaction(() -> holds.values().stream().filter(h -> h.showId().equals(showId)).toList());
+    }
+
+    public void addOfferListener(Consumer<WaitlistPromotedEvent> listener) {
+        offerListeners.add(java.util.Objects.requireNonNull(listener));
+    }
+
+    private void offerOrFree(ShowInventory show, String seatId) {
+        var iterator = show.waiting.values().iterator();
+        if (!iterator.hasNext()) {
+            changed(show);
+            return;
+        }
+        var next = iterator.next();
+        iterator.remove();
+        var hold = placeHold(next.userId(), show, seatId, OFFER_MS);
+        show.offers.put(next.userId(), hold.holdId());
+        var offer = new WaitlistPromotedEvent(next.showId(), seatId, next.userId(), hold.holdId(),
+            hold.expirationTimestamp(), show.version);
+        for (var listener : offerListeners) {
+            events.enqueue(() -> listener.accept(offer));
+        }
+    }
+
+    @Override
+    public WaitlistResult joinWaitlist(String user, String showId) {
+        return transaction(() -> {
+            if (user == null || user.isBlank()) {
+                return WaitlistResult.rejected(showId, ErrorCode.AUTH_REQUIRED, "Login required");
+            }
+            var show = shows.get(showId);
+            if (show == null) { return WaitlistResult.rejected(showId, ErrorCode.SHOW_NOT_FOUND, "Unknown show"); }
+            if (show.waiting.containsKey(user) || show.offers.containsKey(user)) {
+                return WaitlistResult.rejected(showId, ErrorCode.ALREADY_ON_WAITLIST, "Already waiting or offered a seat");
+            }
+            if (show.seats.values().stream().anyMatch(Seat::isAvailable)) {
+                return WaitlistResult.rejected(showId, ErrorCode.INVALID_REQUEST_FORMAT, "Show has available seats");
+            }
+            if (show.waiting.size() >= MAX_WAITLIST) {
+                return WaitlistResult.rejected(showId, ErrorCode.WAITLIST_FULL, "Waitlist full");
+            }
+            int position = show.waiting.size() + 1;
+            String id = "WTL-" + UUID.randomUUID();
+            show.waiting.put(user, new WaitlistEntry(id, showId, user, position, clock.currentTimeMillis()));
+            return WaitlistResult.ok(id, showId, position, "Joined waitlist");
+        });
+    }
+
+    @Override
+    public WaitlistResult leaveWaitlist(String user, String showId) {
+        return transaction(() -> {
+            if (user == null || user.isBlank()) {
+                return WaitlistResult.rejected(showId, ErrorCode.AUTH_REQUIRED, "Login required");
+            }
+            var show = shows.get(showId);
+            if (show == null) { return WaitlistResult.rejected(showId, ErrorCode.SHOW_NOT_FOUND, "Unknown show"); }
+            var removed = show.waiting.remove(user);
+            if (removed == null) {
+                return WaitlistResult.rejected(showId, ErrorCode.NOT_ON_WAITLIST, "No waiting entry");
+            }
+            return WaitlistResult.ok(removed.waitlistId(), showId, -1, "Left waitlist");
+        });
+    }
+
+    private Optional<WaitlistEntry> entryAtCurrentPosition(ShowInventory show, String user) {
+        int position = 0;
+        for (var entry : show.waiting.values()) {
+            position++;
+            if (entry.userId().equals(user)) {
+                return Optional.of(new WaitlistEntry(entry.waitlistId(), entry.showId(), user, position, entry.timestamp()));
+            }
+        }
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<WaitlistEntry> getWaitlistStatus(String user, String showId) {
+        return transaction(() -> Optional.ofNullable(shows.get(showId)).flatMap(show -> entryAtCurrentPosition(show, user)));
+    }
+
+    @Override
+    public int getQueuePosition(String user, String showId) {
+        return getWaitlistStatus(user, showId).map(WaitlistEntry::position).orElse(-1);
+    }
+
+    @Override
+    public Optional<Status> status(String user, String showId) {
+        return transaction(() -> Optional.ofNullable(shows.get(showId)).map(show ->
+            new Status(entryAtCurrentPosition(show, user).map(WaitlistEntry::position).orElse(-1), show.waiting.size())));
     }
 }

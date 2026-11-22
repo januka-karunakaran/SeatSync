@@ -87,6 +87,8 @@ public final class BookingRequestProcessor implements RequestDispatcher {
                 yield new SeatSnapshotReply(id, result.showId(), result.version(), result.seats());
             }
             case "HOLD_SEAT", "RELEASE_HOLD", "CONFIRM_HOLD" -> holdReply(type, frame, id, user.get());
+            case "JOIN_WAITLIST", "LEAVE_WAITLIST", "GET_WAITLIST_STATUS" ->
+                waitlistReply(type, id, user.get(), required(frame, "showId"));
             case "BOOK_SEAT" -> {
                 var result = reservations.book(user.get(), required(frame, "showId"), required(frame, "seatId"));
                 yield result.success()
@@ -105,6 +107,26 @@ public final class BookingRequestProcessor implements RequestDispatcher {
             }
             default -> new ErrorReply(id, ErrorCode.UNKNOWN_REQUEST_TYPE, "Unknown request type");
         };
+    }
+
+    private ReplyMessage waitlistReply(String type, String id, String user, String showId) {
+        if (!(reservations instanceof WaitlistService service)) {
+            return new ErrorReply(id, ErrorCode.UNKNOWN_REQUEST_TYPE, "Waitlist unavailable");
+        }
+        if (type.equals("JOIN_WAITLIST")) {
+            var result = service.joinWaitlist(user, showId);
+            return result.success()
+                ? new WaitlistJoinedOkReply(id, result.waitlistId(), showId, result.position(), result.message())
+                : new WaitlistJoinedRejectedReply(id, showId, result.errorCode(), result.message());
+        }
+        if (type.equals("LEAVE_WAITLIST")) {
+            var result = service.leaveWaitlist(user, showId);
+            return result.success() ? new WaitlistLeftOkReply(id, showId, result.message())
+                : new ErrorReply(id, result.errorCode(), result.message());
+        }
+        return service.status(user, showId).<ReplyMessage>map(status ->
+            new WaitlistStatusReply(id, showId, status.position(), status.totalWaitlistSize()))
+            .orElseGet(() -> new ErrorReply(id, ErrorCode.SHOW_NOT_FOUND, "Unknown show"));
     }
 
     private ReplyMessage holdReply(String type, JsonNode frame, String id, String user) {

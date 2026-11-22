@@ -12,7 +12,7 @@ import java.util.logging.Logger;
 final class SeatEventPublisher {
     private static final Logger LOG = Logger.getLogger(SeatEventPublisher.class.getName());
     private final CopyOnWriteArrayList<SeatChangeListener> listeners = new CopyOnWriteArrayList<>();
-    private final ArrayDeque<Delivery> pending = new ArrayDeque<>();
+    private final ArrayDeque<Runnable> pending = new ArrayDeque<>();
     private boolean draining;
 
     void add(SeatChangeListener listener) { listeners.addIfAbsent(Objects.requireNonNull(listener)); }
@@ -21,9 +21,13 @@ final class SeatEventPublisher {
     // Called under the inventory lock to preserve commit/version order.
     synchronized void enqueue(SeatSnapshot snapshot) {
         if (!listeners.isEmpty()) {
-            pending.addLast(new Delivery(snapshot, List.copyOf(listeners)));
+            for (var listener : List.copyOf(listeners)) {
+                enqueue(() -> listener.onSeatUpdated(snapshot.showId(), snapshot.version(), snapshot.seats()));
+            }
         }
     }
+
+    synchronized void enqueue(Runnable delivery) { pending.addLast(delivery); }
 
     // A single caller drains; concurrent/reentrant mutations enqueue for this caller.
     void drain() {
@@ -32,7 +36,7 @@ final class SeatEventPublisher {
             draining = true;
         }
         while (true) {
-            Delivery delivery;
+            Runnable delivery;
             synchronized (this) {
                 delivery = pending.pollFirst();
                 if (delivery == null) {
@@ -40,16 +44,11 @@ final class SeatEventPublisher {
                     return;
                 }
             }
-            for (SeatChangeListener listener : delivery.listeners()) {
-                try {
-                    SeatSnapshot snapshot = delivery.snapshot();
-                    listener.onSeatUpdated(snapshot.showId(), snapshot.version(), snapshot.seats());
-                } catch (RuntimeException failure) {
-                    LOG.warning("Seat listener failed; committed inventory is unchanged");
-                }
+            try {
+                delivery.run();
+            } catch (RuntimeException failure) {
+                LOG.warning("Seat listener failed; committed inventory is unchanged");
             }
         }
     }
-
-    private record Delivery(SeatSnapshot snapshot, List<SeatChangeListener> listeners) {}
 }

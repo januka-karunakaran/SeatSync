@@ -4,6 +4,7 @@ import com.seatsync.common.protocol.Message;
 import com.seatsync.common.protocol.ProtocolJson;
 import com.seatsync.common.protocol.ReplyMessage;
 import com.seatsync.common.protocol.event.SeatUpdatedEvent;
+import com.seatsync.common.protocol.event.WaitlistPromotedEvent;
 import com.seatsync.common.protocol.reply.BookOkReply;
 import com.seatsync.common.protocol.reply.BookRejectedReply;
 import com.seatsync.common.protocol.reply.CancelOkReply;
@@ -42,6 +43,7 @@ public class ClientMessageHandler {
         default void onCancelSuccess(CancelOkReply reply) {}
         default void onCancelRejected(CancelRejectedReply reply) {}
         default void onLogoutSuccess(LogoutOkReply reply) {}
+        default void onWaitlistPromoted(WaitlistPromotedEvent event) {}
         default void onSeatUpdated(SeatUpdatedEvent event) {}
         default void onError(ErrorReply error) {}
         default void onMalformedMessage(String rawJson, String errorMessage) {}
@@ -98,6 +100,13 @@ public class ClientMessageHandler {
                 }
             }
             dispatchReply(reply);
+        } else if (message instanceof WaitlistPromotedEvent offer) {
+            for (Listener listener : listeners) {
+                try {
+                    listener.onWaitlistPromoted(offer);
+                } catch (Exception ignored) {
+                }
+            }
         } else if (message instanceof SeatUpdatedEvent event) {
             for (Listener listener : listeners) {
                 try {

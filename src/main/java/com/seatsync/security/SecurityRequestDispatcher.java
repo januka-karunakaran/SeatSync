@@ -1,0 +1,134 @@
+package com.seatsync.security;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectReader;
+import com.seatsync.common.contracts.RequestContext;
+import com.seatsync.common.contracts.RequestDispatcher;
+import com.seatsync.common.model.ErrorCode;
+import com.seatsync.common.model.ProtocolConstants;
+import com.seatsync.common.protocol.ProtocolJson;
+import com.seatsync.common.protocol.reply.ErrorReply;
+import com.seatsync.common.protocol.reply.LoginFailedReply;
+import com.seatsync.common.protocol.reply.LoginOkReply;
+import java.util.Arrays;
+import java.util.Objects;
+import java.util.Set;
+import java.util.logging.Logger;
+
+/** Authentication and strict request validation in front of a booking dispatcher. */
+public final class SecurityRequestDispatcher implements RequestDispatcher {
+    private static final Logger LOG = Logger.getLogger(SecurityRequestDispatcher.class.getName());
+    private static final ObjectReader READER = ProtocolJson.mapper().readerFor(JsonNode.class)
+        .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS, DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY);
+    private final com.seatsync.common.contracts.AuthService auth;
+    private final AuthorizationService authorization;
+    private final RequestDispatcher booking;
+
+    public SecurityRequestDispatcher(com.seatsync.common.contracts.AuthService auth,
+            AuthorizationService authorization, RequestDispatcher booking) {
+        this.auth = Objects.requireNonNull(auth);
+        this.authorization = Objects.requireNonNull(authorization);
+        this.booking = Objects.requireNonNull(booking);
+    }
+
+    @Override
+    public void dispatch(RequestContext context, String jsonLine) {
+        String id = "N/A";
+        try {
+            if (jsonLine == null || jsonLine.getBytes(ProtocolConstants.CHARSET).length > ProtocolConstants.MAX_FRAME_BYTES) {
+                throw new InvalidRequest();
+            }
+            JsonNode frame = READER.readValue(jsonLine);
+            if (frame == null || !frame.isObject()) {
+                throw new InvalidRequest();
+            }
+            String candidateId = text(frame, "requestId");
+            if (!candidateId.matches("[A-Za-z0-9._-]{1,128}")) {
+                throw new InvalidRequest();
+            }
+            id = candidateId;
+            String type = text(frame, "type");
+            Set<String> allowed = switch (type) {
+                case "LOGIN" -> Set.of("type", "requestId", "username", "password");
+                case "GET_SEATS" -> Set.of("type", "requestId", "showId");
+                case "BOOK_SEAT" -> Set.of("type", "requestId", "showId", "seatId");
+                case "CANCEL_BOOKING" -> Set.of("type", "requestId", "bookingId");
+                case "LOGOUT" -> Set.of("type", "requestId");
+                default -> null;
+            };
+            if (allowed == null) {
+                sendError(context, id, ErrorCode.UNKNOWN_REQUEST_TYPE, "Unknown request type");
+                return;
+            }
+            var fields = frame.fieldNames();
+            while (fields.hasNext()) {
+                if (!allowed.contains(fields.next())) {
+                    throw new InvalidRequest();
+                }
+            }
+            if ("LOGIN".equals(type)) {
+                if (authorization.isAuthenticated(context)) {
+                    context.send(ProtocolJson.serialize(new LoginFailedReply(id, ErrorCode.ALREADY_AUTHENTICATED,
+                        "Already logged in")));
+                    return;
+                }
+                String username = text(frame, "username");
+                char[] password = text(frame, "password").toCharArray();
+                try {
+                    var result = auth.login(username, password);
+                    if (result.success()) {
+                        context.setAuthenticatedUserId(result.userId());
+                        context.send(ProtocolJson.serialize(new LoginOkReply(id, result.userId(), result.username())));
+                    } else {
+                        context.send(ProtocolJson.serialize(new LoginFailedReply(id, ErrorCode.INVALID_CREDENTIALS,
+                            "Username or password incorrect")));
+                    }
+                } finally {
+                    Arrays.fill(password, '\0');
+                }
+                return;
+            }
+            if (!authorization.isAuthenticated(context)) {
+                sendError(context, id, ErrorCode.AUTH_REQUIRED, "Login required");
+                return;
+            }
+            if ("GET_SEATS".equals(type) || "BOOK_SEAT".equals(type)) {
+                if (!ProtocolConstants.DEFAULT_SHOW_ID.equals(text(frame, "showId"))) {
+                    sendError(context, id, ErrorCode.SHOW_NOT_FOUND, "Show not found");
+                    return;
+                }
+            }
+            if ("BOOK_SEAT".equals(type) && !InputValidator.seatId(text(frame, "seatId"))) {
+                sendError(context, id, ErrorCode.SEAT_NOT_FOUND, "Invalid seat ID");
+                return;
+            }
+            if ("CANCEL_BOOKING".equals(type) && !InputValidator.bookingId(text(frame, "bookingId"))) {
+                throw new InvalidRequest();
+            }
+            booking.dispatch(context, jsonLine);
+        } catch (JsonProcessingException | InvalidRequest e) {
+            sendError(context, id, ErrorCode.INVALID_REQUEST_FORMAT, "Invalid request fields or JSON");
+        } catch (RuntimeException e) {
+            LOG.severe("Security request processing failed");
+            sendError(context, id, ErrorCode.INTERNAL_ERROR, "Request processing failed");
+        }
+    }
+
+    private static String text(JsonNode frame, String name) {
+        JsonNode node = frame.get(name);
+        if (node == null || !node.isTextual()) {
+            throw new InvalidRequest();
+        }
+        return node.textValue();
+    }
+
+    private static void sendError(RequestContext context, String id, ErrorCode code, String message) {
+        context.send(ProtocolJson.serialize(new ErrorReply(id, code, message)));
+    }
+
+    private static final class InvalidRequest extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+    }
+}

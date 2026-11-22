@@ -52,6 +52,9 @@ SeatSync is a client-server desktop system. You need to run **one server** and *
 ### 3.1 Start the Central Java NIO Server
 Open a terminal in the project root:
 ```powershell
+# Local demo only; never use this password for real accounts.
+$env:SEATSYNC_DEMO_PASSWORD = 'password123'
+
 # Method A: Windows Batch Script (Fastest)
 .\scripts\start-server.bat
 
@@ -81,6 +84,10 @@ Leave the server running. Open a **new terminal tab or window**:
 mvn exec:java -Dexec.mainClass="com.seatsync.client.SeatSyncClient"
 ```
 *(The graphical Swing Login window will appear on your desktop.)*
+
+The five demo usernames are `alice`, `bob`, `carol`, `dave`, and `erin`; use the
+locally configured demo password. TCP is not encrypted. See
+[security limitations](SECURITY_LIMITATIONS.md) before running the demo.
 
 ---
 

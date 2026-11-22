@@ -52,6 +52,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ProtocolContractTest {
 
     @Test
+    void serializedMessagesHaveOneTypeFieldAcceptedByStrictWorkerParser() throws Exception {
+        var strictReader = ProtocolJson.mapper().readerFor(com.fasterxml.jackson.databind.JsonNode.class)
+            .with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY);
+        List<Message> messages = List.of(
+            new LoginRequest("login", "alice", "test"),
+            new GetSeatsRequest("seats", "SHOW-01"),
+            new BookSeatRequest("book", "SHOW-01", "A1"),
+            new CancelBookingRequest("cancel", "BKG-test"),
+            new LogoutRequest("logout"),
+            new LoginOkReply("login", "id-alice", "alice"),
+            new SeatUpdatedEvent("SHOW-01", 1, List.of(SeatView.available("A1")))
+        );
+        for (Message message : messages) {
+            String json = ProtocolJson.serialize(message);
+            com.fasterxml.jackson.databind.JsonNode frame = strictReader.readValue(json);
+            assertEquals(message.getType().name(), frame.path("type").asText());
+            assertEquals(message.getClass(), ProtocolJson.deserializeMessage(json).getClass());
+        }
+    }
+
+    @Test
     @DisplayName("Test 1: Requests serialize and deserialize preserving requestId and omitting untrusted userId")
     void testClientRequestContracts() {
         String reqId = UUID.randomUUID().toString();

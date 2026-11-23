@@ -73,12 +73,17 @@ public class SeatSyncServerMain {
         var authorization = new AuthorizationService(users);
         var audit = new SecurityAuditLog();
         var reservations = new InMemoryReservationService();
-        var booking = new BookingRequestProcessor(auth, reservations);
+        var subscriptionRegistry = new com.seatsync.delivery.ShowSubscriptionRegistry();
+        var showEventBus = new com.seatsync.delivery.ShowEventBus(subscriptionRegistry);
+        var booking = new BookingRequestProcessor(auth, reservations, subscriptionRegistry);
         var serverReference = new AtomicReference<NioBookingServer>();
         var adminService = new AdminService(authorization, reservations, reservations::registerShow,
             new HoldAdminBackend(authorization, reservations), audit, Clock.systemUTC(), show -> {
-                // U06 supplies the subscription-aware show event fan-out; no second event bus here.
                 audit.record("system", "SHOW_CATALOG_CHANGED", show.showId(), SecurityAuditLog.Outcome.SUCCESS);
+                int capacity = show.layout() != null ? show.layout().totalCapacity() : 40;
+                var summary = new com.seatsync.common.model.ShowSummary(
+                    show.showId(), show.title(), show.startTime(), show.venue(), capacity, capacity);
+                showEventBus.publishShowUpdated(show.showId(), summary, 1L, true);
             });
         var adminDispatcher = new AdminRequestDispatcher(authorization, adminService, audit,
             () -> serverReference.get().getMetricsTracker().getNetworkMetricsSnapshot(),
@@ -100,12 +105,7 @@ public class SeatSyncServerMain {
             server.getSessionRegistry().getAll().forEach(session -> session.sendToUser(offer.promotedUserId(), line));
         });
         reservations.addSeatChangeListener((showId, version, seats) -> {
-            String line = ProtocolJson.serialize(new SeatUpdatedEvent(showId, version, seats));
-            server.getSessionRegistry().getAll().forEach(session -> {
-                if (session.isOpen() && session.isAuthenticated()) {
-                    session.send(line);
-                }
-            });
+            showEventBus.publishSeatUpdated(showId, version, seats);
         });
 
         System.out.println("=================================================================");

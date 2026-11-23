@@ -17,10 +17,16 @@ public final class BookingRequestProcessor implements RequestDispatcher {
         .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS, DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY);
     private final AuthService auth;
     private final ReservationService reservations;
+    private final EventSubscriptionService subscriptions;
 
     public BookingRequestProcessor(AuthService auth, ReservationService reservations) {
+        this(auth, reservations, null);
+    }
+
+    public BookingRequestProcessor(AuthService auth, ReservationService reservations, EventSubscriptionService subscriptions) {
         this.auth = auth;
         this.reservations = reservations;
+        this.subscriptions = subscriptions;
     }
 
     @Override
@@ -85,6 +91,25 @@ public final class BookingRequestProcessor implements RequestDispatcher {
                 }
                 var result = reservations.snapshot(showId);
                 yield new SeatSnapshotReply(id, result.showId(), result.version(), result.seats());
+            }
+            case "SUBSCRIBE_EVENTS" -> {
+                String showId = required(frame, "showId");
+                if (subscriptions == null) {
+                    yield new ErrorReply(id, ErrorCode.UNKNOWN_REQUEST_TYPE, "Subscription service unavailable");
+                }
+                if (subscriptions instanceof com.seatsync.delivery.ShowSubscriptionRegistry registry) {
+                    registry.registerContext(context);
+                }
+                subscriptions.subscribe(context.getSessionId(), showId);
+                yield new com.seatsync.common.protocol.reply.SubscribeOkReply(id, showId, "Subscribed to events for show " + showId);
+            }
+            case "UNSUBSCRIBE_EVENTS" -> {
+                String showId = required(frame, "showId");
+                if (subscriptions == null) {
+                    yield new ErrorReply(id, ErrorCode.UNKNOWN_REQUEST_TYPE, "Subscription service unavailable");
+                }
+                subscriptions.unsubscribe(context.getSessionId(), showId);
+                yield new com.seatsync.common.protocol.reply.UnsubscribeOkReply(id, showId, "Unsubscribed from events for show " + showId);
             }
             case "HOLD_SEAT", "RELEASE_HOLD", "CONFIRM_HOLD" -> holdReply(type, frame, id, user.get());
             case "JOIN_WAITLIST", "LEAVE_WAITLIST", "GET_WAITLIST_STATUS" ->

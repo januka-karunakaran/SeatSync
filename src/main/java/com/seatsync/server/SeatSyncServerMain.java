@@ -88,8 +88,10 @@ public class SeatSyncServerMain {
         var adminDispatcher = new AdminRequestDispatcher(authorization, adminService, audit,
             () -> serverReference.get().getMetricsTracker().getNetworkMetricsSnapshot(),
             () -> serverReference.get().getMetricsTracker().getMetricsSnapshot(), booking);
-        WorkerRequestDispatcher dispatcher = new WorkerRequestDispatcher(
-            new SecurityRequestDispatcher(auth, authorization, adminDispatcher, audit));
+        var idempotencyCache = new com.seatsync.reliability.IdempotencyCache();
+        var secureDispatcher = new SecurityRequestDispatcher(auth, authorization, adminDispatcher, audit);
+        var idempotentDispatcher = new com.seatsync.reliability.IdempotentRequestDispatcher(secureDispatcher, idempotencyCache);
+        WorkerRequestDispatcher dispatcher = new WorkerRequestDispatcher(idempotentDispatcher);
         NioBookingServer server = new NioBookingServer(config, dispatcher);
         serverReference.set(server);
         reservations.addCatalogChangeListener(event -> {

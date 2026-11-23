@@ -75,7 +75,8 @@ public class SeatSyncServerMain {
         var reservations = new InMemoryReservationService();
         var subscriptionRegistry = new com.seatsync.delivery.ShowSubscriptionRegistry();
         var showEventBus = new com.seatsync.delivery.ShowEventBus(subscriptionRegistry);
-        var booking = new BookingRequestProcessor(auth, reservations, subscriptionRegistry);
+        var ticketManager = new com.seatsync.tickets.TicketManager();
+        var booking = new BookingRequestProcessor(auth, reservations, subscriptionRegistry, ticketManager, ticketManager);
         var serverReference = new AtomicReference<NioBookingServer>();
         var adminService = new AdminService(authorization, reservations, reservations::registerShow,
             new HoldAdminBackend(authorization, reservations), audit, Clock.systemUTC(), show -> {

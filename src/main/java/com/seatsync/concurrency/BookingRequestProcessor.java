@@ -18,15 +18,26 @@ public final class BookingRequestProcessor implements RequestDispatcher {
     private final AuthService auth;
     private final ReservationService reservations;
     private final EventSubscriptionService subscriptions;
+    private final TicketService ticketService;
+    private final HistoryService historyService;
 
     public BookingRequestProcessor(AuthService auth, ReservationService reservations) {
-        this(auth, reservations, null);
+        this(auth, reservations, null, null, null);
     }
 
     public BookingRequestProcessor(AuthService auth, ReservationService reservations, EventSubscriptionService subscriptions) {
+        this(auth, reservations, subscriptions, null, null);
+    }
+
+    public BookingRequestProcessor(AuthService auth, ReservationService reservations,
+                                   EventSubscriptionService subscriptions,
+                                   TicketService ticketService,
+                                   HistoryService historyService) {
         this.auth = auth;
         this.reservations = reservations;
         this.subscriptions = subscriptions;
+        this.ticketService = ticketService;
+        this.historyService = historyService;
     }
 
     @Override
@@ -111,17 +122,43 @@ public final class BookingRequestProcessor implements RequestDispatcher {
                 subscriptions.unsubscribe(context.getSessionId(), showId);
                 yield new com.seatsync.common.protocol.reply.UnsubscribeOkReply(id, showId, "Unsubscribed from events for show " + showId);
             }
+            case "GET_TICKET" -> {
+                String ticketId = required(frame, "ticketId");
+                if (ticketService == null) {
+                    yield new ErrorReply(id, ErrorCode.UNKNOWN_REQUEST_TYPE, "Ticket service unavailable");
+                }
+                yield ticketService.getTicket(ticketId, user.get())
+                    .<ReplyMessage>map(ticket -> new com.seatsync.common.protocol.reply.TicketReply(id, ticket))
+                    .orElseGet(() -> new ErrorReply(id, ErrorCode.TICKET_NOT_FOUND, "Ticket not found or access denied"));
+            }
+            case "GET_BOOKING_HISTORY" -> {
+                if (historyService == null) {
+                    yield new ErrorReply(id, ErrorCode.UNKNOWN_REQUEST_TYPE, "History service unavailable");
+                }
+                int pageNumber = frame.has("pageNumber") ? frame.path("pageNumber").asInt(0) : 0;
+                int pageSize = frame.has("pageSize") ? frame.path("pageSize").asInt(com.seatsync.common.model.PagedResult.DEFAULT_PAGE_SIZE)
+                    : com.seatsync.common.model.PagedResult.DEFAULT_PAGE_SIZE;
+                var history = historyService.getBookingHistory(user.get(), pageNumber, pageSize);
+                yield new com.seatsync.common.protocol.reply.BookingHistoryReply(id, history);
+            }
             case "HOLD_SEAT", "RELEASE_HOLD", "CONFIRM_HOLD" -> holdReply(type, frame, id, user.get());
             case "JOIN_WAITLIST", "LEAVE_WAITLIST", "GET_WAITLIST_STATUS" ->
                 waitlistReply(type, id, user.get(), required(frame, "showId"));
             case "BOOK_SEAT" -> {
                 var result = reservations.book(user.get(), required(frame, "showId"), required(frame, "seatId"));
+                if (result.success() && ticketService != null) {
+                    ticketService.issueTicket(result.bookingId(), user.get(), result.showId(), result.seatId(), 1500);
+                }
                 yield result.success()
                     ? new BookOkReply(id, result.bookingId(), result.showId(), result.seatId(), result.message())
                     : new BookRejectedReply(id, result.errorCode(), result.message());
             }
             case "CANCEL_BOOKING" -> {
-                var result = reservations.cancel(user.get(), required(frame, "bookingId"));
+                String bookingId = required(frame, "bookingId");
+                var result = reservations.cancel(user.get(), bookingId);
+                if (result.success() && ticketService instanceof com.seatsync.tickets.TicketManager mgr) {
+                    mgr.invalidateBookingTicket(bookingId, user.get());
+                }
                 yield result.success()
                     ? new CancelOkReply(id, result.bookingId(), result.seatId(), result.message())
                     : new CancelRejectedReply(id, result.errorCode(), result.message());
@@ -177,6 +214,9 @@ public final class BookingRequestProcessor implements RequestDispatcher {
                 : new HoldReleasedRejectedReply(id, holdId, result.errorCode(), result.message());
         }
         var booking = service.confirmHold(user, holdId, required(frame, "idempotencyKey"));
+        if (booking.success() && ticketService != null) {
+            ticketService.issueTicket(booking.bookingId(), user, booking.showId(), booking.seatId(), 1500);
+        }
         // Reserve a stable ticket reference for the subsequent ticket issuance stage.
         return booking.success()
             ? new ConfirmOkReply(id, booking.bookingId(), booking.bookingId().replaceFirst("^BKG-", "TCK-"),

@@ -38,6 +38,17 @@ import com.seatsync.common.protocol.reply.HoldReleasedOkReply;
 import com.seatsync.common.protocol.reply.LogoutOkReply;
 import com.seatsync.common.protocol.reply.MovieListReply;
 import com.seatsync.common.protocol.reply.NetworkMetricsReply;
+import com.seatsync.ui.assets.ImageResourceManager;
+import com.seatsync.ui.components.ModernButton;
+import com.seatsync.ui.components.MovieCard;
+import com.seatsync.ui.components.RoundedPanel;
+import com.seatsync.ui.components.SectionHeader;
+import com.seatsync.ui.components.StatusBadge;
+import com.seatsync.ui.theme.SeatSyncTheme;
+import com.seatsync.ui.theme.UIColors;
+import com.seatsync.ui.theme.UIFonts;
+import com.seatsync.ui.theme.UISpacing;
+import javax.swing.ImageIcon;
 import com.seatsync.common.protocol.reply.ServerMetricsReply;
 import com.seatsync.common.protocol.reply.SeatSnapshotReply;
 import com.seatsync.common.protocol.reply.ShowListReply;
@@ -88,6 +99,8 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.io.IOException;
 import java.time.LocalTime;
@@ -173,6 +186,18 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     private volatile String activeHoldSeatId;
     private volatile long activeHoldExpiresAt;
     private final transient Map<String, Long> seatHoldExpiries = new ConcurrentHashMap<>();
+
+    // Stage 2: Cinematic Home & Movie Browsing Components
+    private final transient java.util.List<MovieDetails> loadedMovies = new java.util.concurrent.CopyOnWriteArrayList<>();
+    private transient JPanel homeMoviesContainer;
+    private transient JPanel movieCardsGrid;
+    private transient MovieDetails selectedMovie;
+    private transient JLabel lblSelectedMovieTitle;
+    private transient JLabel lblSelectedMovieGenre;
+    private transient JLabel lblSelectedMovieDuration;
+    private transient JTextArea txtSelectedMovieDesc;
+    private transient JLabel lblSelectedMoviePoster;
+    private transient ModernButton btnBookSelectedMovie;
 
     /**
      * Constructs the BookingFrame window.
@@ -288,10 +313,15 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     }
 
     private JPanel createMoviesPage() {
-        JPanel page = new JPanel(new BorderLayout(8, 8));
+        JPanel page = new JPanel(new BorderLayout(12, 12));
+        page.setBackground(UIColors.SOFT_WHITE);
+        page.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+
         movieRows = tableModel("Movie ID", "Title", "Genre", "Duration (min)");
-        JTable table = new JTable(movieRows);
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT));
+
+        // Top actions
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        actions.setOpaque(false);
         actions.add(actionButton("Refresh movies", this::requestMovies));
         btnPreviousMovies = actionButton("Previous", () -> {
             if (moviePage > 0) {
@@ -310,9 +340,81 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         if (role == UserRole.ADMIN) {
             actions.add(actionButton("Create movie", this::showCreateMovieDialog));
         }
-        page.add(actions, BorderLayout.NORTH);
-        page.add(new JScrollPane(table), BorderLayout.CENTER);
+
+        SectionHeader header = new SectionHeader("Cinema Movies Catalog", "Browse active movie listings and select a movie to view details", actions);
+        page.add(header, BorderLayout.NORTH);
+
+        // Center split layout: Left = movie cards grid, Right = selected movie details
+        JPanel splitPanel = new JPanel(new BorderLayout(16, 0));
+        splitPanel.setOpaque(false);
+
+        // Left Cards Grid (FilmTIX style)
+        movieCardsGrid = new JPanel(new FlowLayout(FlowLayout.LEFT, 14, 14));
+        movieCardsGrid.setOpaque(false);
+        JScrollPane scrollCards = new JScrollPane(movieCardsGrid);
+        scrollCards.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(UIColors.LIGHT_BORDER, 1),
+            BorderFactory.createEmptyBorder(6, 6, 6, 6)
+        ));
+        scrollCards.getViewport().setBackground(UIColors.SOFT_WHITE);
+        scrollCards.getVerticalScrollBar().setUnitIncrement(14);
+        splitPanel.add(scrollCards, BorderLayout.CENTER);
+
+        // Right Detail Card (FilmTIX style)
+        RoundedPanel detailCard = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.PURE_WHITE, UIColors.LIGHT_BORDER, 1, true);
+        detailCard.setLayout(new BoxLayout(detailCard, BoxLayout.Y_AXIS));
+        detailCard.setBorder(BorderFactory.createEmptyBorder(18, 18, 18, 18));
+        detailCard.setPreferredSize(new Dimension(320, 0));
+
+        lblSelectedMoviePoster = new JLabel();
+        lblSelectedMoviePoster.setAlignmentX(CENTER_ALIGNMENT);
+
+        lblSelectedMovieTitle = new JLabel("Select a Movie");
+        lblSelectedMovieTitle.setFont(UIFonts.TITLE_MEDIUM);
+        lblSelectedMovieTitle.setForeground(UIColors.TEXT_DARK);
+        lblSelectedMovieTitle.setAlignmentX(CENTER_ALIGNMENT);
+
+        JPanel badgeRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 0));
+        badgeRow.setOpaque(false);
+        lblSelectedMovieGenre = new JLabel("");
+        lblSelectedMovieGenre.setFont(UIFonts.BADGE);
+        lblSelectedMovieGenre.setForeground(UIColors.DEEP_PURPLE);
+        lblSelectedMovieDuration = new JLabel("");
+        lblSelectedMovieDuration.setFont(UIFonts.BADGE);
+        lblSelectedMovieDuration.setForeground(UIColors.TEXT_MUTED);
+        badgeRow.add(lblSelectedMovieGenre);
+        badgeRow.add(lblSelectedMovieDuration);
+
+        txtSelectedMovieDesc = new JTextArea("Click any movie card to inspect details and view available showtimes.");
+        txtSelectedMovieDesc.setEditable(false);
+        txtSelectedMovieDesc.setLineWrap(true);
+        txtSelectedMovieDesc.setWrapStyleWord(true);
+        txtSelectedMovieDesc.setFont(UIFonts.BODY_SMALL);
+        txtSelectedMovieDesc.setForeground(UIColors.TEXT_MUTED);
+        txtSelectedMovieDesc.setBackground(UIColors.PURE_WHITE);
+        txtSelectedMovieDesc.setBorder(BorderFactory.createEmptyBorder(6, 4, 6, 4));
+
+        btnBookSelectedMovie = new ModernButton("View Shows & Book", ModernButton.Variant.PRIMARY);
+        btnBookSelectedMovie.setAlignmentX(CENTER_ALIGNMENT);
+        btnBookSelectedMovie.setEnabled(false);
+        btnBookSelectedMovie.addActionListener(e -> showPage("Shows"));
+
+        detailCard.add(lblSelectedMoviePoster);
+        detailCard.add(Box.createVerticalStrut(12));
+        detailCard.add(lblSelectedMovieTitle);
+        detailCard.add(Box.createVerticalStrut(6));
+        detailCard.add(badgeRow);
+        detailCard.add(Box.createVerticalStrut(10));
+        detailCard.add(txtSelectedMovieDesc);
+        detailCard.add(Box.createVerticalGlue());
+        detailCard.add(btnBookSelectedMovie);
+
+        splitPanel.add(detailCard, BorderLayout.EAST);
+        page.add(splitPanel, BorderLayout.CENTER);
+
         lblMovieState = new JLabel("Loading movies...");
+        lblMovieState.setFont(UIFonts.CAPTION);
+        lblMovieState.setForeground(UIColors.TEXT_SECONDARY);
         page.add(lblMovieState, BorderLayout.SOUTH);
         return page;
     }
@@ -390,56 +492,163 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         };
     }
 
-    private ThemedButton actionButton(String title, Runnable action) {
-        ThemedButton button = new ThemedButton(title, new Color(55, 71, 79), Color.WHITE);
+    private ModernButton actionButton(String title, Runnable action) {
+        ModernButton button = new ModernButton(title, ModernButton.Variant.SECONDARY);
+        button.setFont(UIFonts.custom(Font.BOLD, 12));
         button.addActionListener(event -> action.run());
         return button;
     }
 
     private JPanel createHomePage() {
-        JPanel home = new JPanel(new BorderLayout(16, 16));
-        home.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        JPanel heading = new JPanel(new GridLayout(2, 1, 0, 6));
-        heading.setOpaque(false);
-        JLabel title = new JLabel("Welcome, " + username);
-        title.setFont(new Font("Segoe UI", Font.BOLD, 25));
-        lblShowTitle = new JLabel("Your SeatSync booking overview for " + showId);
-        JLabel subtitle = lblShowTitle;
-        subtitle.setForeground(new Color(100, 116, 139));
-        heading.add(title);
-        heading.add(subtitle);
-        home.add(heading, BorderLayout.NORTH);
+        JPanel home = new JPanel(new BorderLayout(14, 14));
+        home.setBackground(UIColors.SOFT_WHITE);
+        home.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 14));
 
-        JPanel summary = new JPanel(new GridLayout(1, 3, 14, 0));
-        summary.add(createSummaryCard("Available seats", value -> lblHomeAvailable = value));
-        summary.add(createSummaryCard("Booked seats", value -> lblHomeBooked = value));
-        summary.add(createSummaryCard("Held seats", value -> lblHomeHeld = value));
-        home.add(summary, BorderLayout.CENTER);
+        // Top Cinematic Hero Section (Netflix inspiration)
+        RoundedPanel heroPanel = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.SURFACE_DARK, UIColors.DARK_BORDER, 1, true);
+        heroPanel.setLayout(new BorderLayout(20, 10));
+        heroPanel.setBorder(BorderFactory.createEmptyBorder(20, 24, 20, 24));
+
+        JPanel heroTextPanel = new JPanel();
+        heroTextPanel.setLayout(new BoxLayout(heroTextPanel, BoxLayout.Y_AXIS));
+        heroTextPanel.setOpaque(false);
+
+        JLabel welcomeLabel = new JLabel("Welcome back, " + username);
+        welcomeLabel.setFont(UIFonts.TITLE_MEDIUM);
+        welcomeLabel.setForeground(UIColors.LAVENDER_PRIMARY);
+        welcomeLabel.setAlignmentX(LEFT_ALIGNMENT);
+
+        JLabel heroTitle = new JLabel("Grand Cinema Experience");
+        heroTitle.setFont(UIFonts.HERO_TITLE);
+        heroTitle.setForeground(UIColors.PURE_WHITE);
+        heroTitle.setAlignmentX(LEFT_ALIGNMENT);
+
+        lblShowTitle = new JLabel("Active Show: " + showId + " • Real-Time Synchronization Active");
+        lblShowTitle.setFont(UIFonts.BODY);
+        lblShowTitle.setForeground(new Color(0xD8, 0xD5, 0xE3));
+        lblShowTitle.setAlignmentX(LEFT_ALIGNMENT);
+
+        JPanel heroActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+        heroActions.setOpaque(false);
+        heroActions.setAlignmentX(LEFT_ALIGNMENT);
+        ModernButton btnHeroBook = new ModernButton("Book Seats Now", ModernButton.Variant.PRIMARY);
+        btnHeroBook.addActionListener(e -> showPage("Seat Map"));
+        ModernButton btnHeroBrowse = new ModernButton("Browse Movies", ModernButton.Variant.SECONDARY);
+        btnHeroBrowse.addActionListener(e -> showPage("Movies"));
+        heroActions.add(btnHeroBook);
+        heroActions.add(btnHeroBrowse);
+
+        heroTextPanel.add(welcomeLabel);
+        heroTextPanel.add(Box.createVerticalStrut(4));
+        heroTextPanel.add(heroTitle);
+        heroTextPanel.add(Box.createVerticalStrut(6));
+        heroTextPanel.add(lblShowTitle);
+        heroTextPanel.add(Box.createVerticalStrut(16));
+        heroTextPanel.add(heroActions);
+
+        heroPanel.add(heroTextPanel, BorderLayout.CENTER);
+
+        // Center Content: Stats Cards + "Now Showing" Movies
+        JPanel centerContainer = new JPanel();
+        centerContainer.setLayout(new BoxLayout(centerContainer, BoxLayout.Y_AXIS));
+        centerContainer.setOpaque(false);
+
+        // 3 Live Inventory Stats Cards (FilmTIX rounded cards)
+        JPanel statsRow = new JPanel(new GridLayout(1, 3, 14, 0));
+        statsRow.setOpaque(false);
+        statsRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 86));
+        statsRow.add(createSummaryCard("Available seats", UIColors.SUCCESS_GREEN, value -> lblHomeAvailable = value));
+        statsRow.add(createSummaryCard("Booked seats", UIColors.DEEP_CHARCOAL, value -> lblHomeBooked = value));
+        statsRow.add(createSummaryCard("Held seats", UIColors.WARNING_AMBER, value -> lblHomeHeld = value));
+
+        centerContainer.add(Box.createVerticalStrut(10));
+        centerContainer.add(statsRow);
+        centerContainer.add(Box.createVerticalStrut(14));
+
+        // Now Showing Section Header
+        SectionHeader homeSectionHeader = new SectionHeader("Now Showing in Cinemas", "Select a featured movie to view showtimes and reserve seats");
+        homeSectionHeader.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
+        centerContainer.add(homeSectionHeader);
+        centerContainer.add(Box.createVerticalStrut(8));
+
+        // Dynamic Movie Cards Container
+        homeMoviesContainer = new JPanel(new FlowLayout(FlowLayout.LEFT, 14, 10));
+        homeMoviesContainer.setOpaque(false);
+        JScrollPane scrollMovies = new JScrollPane(homeMoviesContainer);
+        scrollMovies.setBorder(BorderFactory.createEmptyBorder());
+        scrollMovies.setOpaque(false);
+        scrollMovies.getViewport().setOpaque(false);
+        scrollMovies.getVerticalScrollBar().setUnitIncrement(12);
+        centerContainer.add(scrollMovies);
+
+        home.add(heroPanel, BorderLayout.NORTH);
+        home.add(centerContainer, BorderLayout.CENTER);
+
+        // Footer status
         lblHomeStatus = new JLabel("Loading current seat availability...", SwingConstants.CENTER);
-        lblHomeStatus.setForeground(new Color(71, 85, 105));
-        JPanel footer = new JPanel(new BorderLayout(8, 8));
-        footer.add(lblHomeStatus, BorderLayout.CENTER);
-        ThemedButton openSeatMap = new ThemedButton("Open Seat Map", new Color(21, 101, 192), Color.WHITE);
-        openSeatMap.addActionListener(event -> showPage("Seat Map"));
-        footer.add(openSeatMap, BorderLayout.SOUTH);
-        home.add(footer, BorderLayout.SOUTH);
+        lblHomeStatus.setFont(UIFonts.CAPTION);
+        lblHomeStatus.setForeground(UIColors.TEXT_SECONDARY);
+        home.add(lblHomeStatus, BorderLayout.SOUTH);
+
         return home;
     }
 
     private JPanel createSummaryCard(String title, java.util.function.Consumer<JLabel> valueConsumer) {
-        JPanel card = new JPanel(new GridLayout(2, 1, 4, 8));
-        card.setBackground(new Color(248, 250, 252));
-        card.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(226, 232, 240)),
-            BorderFactory.createEmptyBorder(18, 18, 18, 18)));
+        return createSummaryCard(title, UIColors.DEEP_CHARCOAL, valueConsumer);
+    }
+
+    private JPanel createSummaryCard(String title, Color accentColor, java.util.function.Consumer<JLabel> valueConsumer) {
+        RoundedPanel card = new RoundedPanel(UISpacing.RADIUS_MEDIUM, UIColors.PURE_WHITE, UIColors.LIGHT_BORDER, 1, true);
+        card.setLayout(new BorderLayout(8, 4));
+        card.setBorder(BorderFactory.createEmptyBorder(12, 16, 12, 16));
+
+        JPanel topRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        topRow.setOpaque(false);
+        JPanel dot = new JPanel() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g.create();
+                SeatSyncTheme.enableAntiAliasing(g2);
+                g2.setColor(accentColor);
+                g2.fillOval(0, 3, 8, 8);
+                g2.dispose();
+            }
+        };
+        dot.setOpaque(false);
+        dot.setPreferredSize(new Dimension(10, 14));
+
         JLabel titleLabel = new JLabel(title);
-        titleLabel.setForeground(new Color(71, 85, 105));
+        titleLabel.setFont(UIFonts.BODY_BOLD);
+        titleLabel.setForeground(UIColors.TEXT_MUTED);
+        topRow.add(dot);
+        topRow.add(titleLabel);
+
         JLabel valueLabel = new JLabel("Loading...");
-        valueLabel.setFont(new Font("Segoe UI", Font.BOLD, 26));
-        card.add(titleLabel);
-        card.add(valueLabel);
+        valueLabel.setFont(UIFonts.TITLE_LARGE);
+        valueLabel.setForeground(UIColors.TEXT_DARK);
+
+        card.add(topRow, BorderLayout.NORTH);
+        card.add(valueLabel, BorderLayout.CENTER);
         valueConsumer.accept(valueLabel);
         return card;
+    }
+
+    private void selectMovie(MovieDetails movie) {
+        if (movie == null) {
+            return;
+        }
+        this.selectedMovie = movie;
+        if (lblSelectedMovieTitle != null) {
+            lblSelectedMovieTitle.setText("<html><center>" + movie.title() + "</center></html>");
+            lblSelectedMovieGenre.setText(movie.genre());
+            lblSelectedMovieDuration.setText("• " + movie.durationMinutes() + " min");
+            txtSelectedMovieDesc.setText(movie.description() != null && !movie.description().isBlank()
+                ? movie.description()
+                : "Experience " + movie.title() + " in premium high-definition audio and projection.");
+            lblSelectedMoviePoster.setIcon(new ImageIcon(ImageResourceManager.getMoviePoster(movie.title(), movie.genre(), 180, 220)));
+            btnBookSelectedMovie.setEnabled(true);
+        }
     }
 
     private void showPage(String page) {
@@ -460,15 +669,54 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     }
 
     private void requestMovies() {
+        if (tcpClient == null) {
+            return;
+        }
         lblMovieState.setText("Loading movies...");
         sendRequestAsync(new GetMoviesRequest(tcpClient.nextRequestId(), moviePage, 5), "GET_MOVIES",
             () -> lblMovieState.setText("Movie request failed. Check the connection and retry."),
             reply -> {
                 if (reply instanceof MovieListReply result) {
+                    loadedMovies.clear();
+                    loadedMovies.addAll(result.movies().items());
                     movieRows.setRowCount(0);
-                    result.movies().items().forEach(movie -> movieRows.addRow(new Object[] {
-                        movie.movieId(), movie.title(), movie.genre(), movie.durationMinutes()
-                    }));
+                    if (movieCardsGrid != null) {
+                        movieCardsGrid.removeAll();
+                    }
+                    if (homeMoviesContainer != null) {
+                        homeMoviesContainer.removeAll();
+                    }
+
+                    for (MovieDetails movie : loadedMovies) {
+                        movieRows.addRow(new Object[] {
+                            movie.movieId(), movie.title(), movie.genre(), movie.durationMinutes()
+                        });
+                        if (movieCardsGrid != null) {
+                            MovieCard card = new MovieCard(movie, this::selectMovie);
+                            movieCardsGrid.add(card);
+                        }
+                        if (homeMoviesContainer != null) {
+                            MovieCard homeCard = new MovieCard(movie, m -> {
+                                selectMovie(m);
+                                showPage("Movies");
+                            });
+                            homeMoviesContainer.add(homeCard);
+                        }
+                    }
+
+                    if (!loadedMovies.isEmpty() && selectedMovie == null) {
+                        selectMovie(loadedMovies.get(0));
+                    }
+
+                    if (movieCardsGrid != null) {
+                        movieCardsGrid.revalidate();
+                        movieCardsGrid.repaint();
+                    }
+                    if (homeMoviesContainer != null) {
+                        homeMoviesContainer.revalidate();
+                        homeMoviesContainer.repaint();
+                    }
+
                     lblMovieState.setText(result.movies().items().isEmpty()
                         ? "No movies are currently available."
                         : "Page " + (result.movies().pageNumber() + 1) + ": "
@@ -740,38 +988,39 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
 
     private JPanel createHeaderPanel() {
         JPanel header = new JPanel(new BorderLayout());
-        header.setBackground(new Color(245, 247, 250));
+        header.setBackground(UIColors.DEEP_CHARCOAL);
         header.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(207, 216, 220), 1),
-            BorderFactory.createEmptyBorder(10, 14, 10, 14)
+            BorderFactory.createLineBorder(UIColors.DARK_BORDER, 1),
+            BorderFactory.createEmptyBorder(10, 16, 10, 16)
         ));
 
         // Left info
-        JPanel infoPanel = new JPanel(new GridLayout(2, 1, 2, 2));
+        JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 14, 0));
         infoPanel.setOpaque(false);
-        JLabel titleLabel = new JLabel("🎬 Cinema Reservation: " + showId);
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 15));
-        JLabel userLabel = new JLabel("👤 Authenticated User: " + username + " (" + userId + ")");
-        userLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        userLabel.setForeground(new Color(55, 71, 79));
+        JLabel titleLabel = new JLabel("Show: " + showId);
+        titleLabel.setFont(UIFonts.TITLE_SMALL);
+        titleLabel.setForeground(UIColors.PURE_WHITE);
+        JLabel userLabel = new JLabel("User: " + username + " (" + role + ")");
+        userLabel.setFont(UIFonts.BODY_SMALL);
+        userLabel.setForeground(new Color(0xD8, 0xD5, 0xE3));
         infoPanel.add(titleLabel);
         infoPanel.add(userLabel);
         header.add(infoPanel, BorderLayout.WEST);
 
         // Right connection status
-        JPanel statusBox = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
+        JPanel statusBox = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         statusBox.setOpaque(false);
         boolean connected = tcpClient != null && tcpClient.isConnected();
         String transport = tcpClient != null && tcpClient.isTlsEnabled() ? " (TLS 1.3)" : " (plaintext)";
         lblConnectionStatus = new JLabel(connected
             ? "● Connected: " + tcpClient.getHost() + ":" + tcpClient.getPort() + transport
             : "● Disconnected");
-        lblConnectionStatus.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        lblConnectionStatus.setForeground(connected ? new Color(46, 125, 50) : Color.RED);
+        lblConnectionStatus.setFont(UIFonts.BODY_BOLD);
+        lblConnectionStatus.setForeground(connected ? UIColors.SUCCESS_GREEN : UIColors.ERROR_RED);
         statusBox.add(lblConnectionStatus);
 
-        btnLogout = new ThemedButton("Logout", new Color(198, 40, 40), Color.WHITE);
-        btnLogout.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        btnLogout = new ModernButton("Logout", ModernButton.Variant.DANGER);
+        btnLogout.setFont(UIFonts.custom(Font.BOLD, 12));
         btnLogout.addActionListener(e -> performLogout());
         statusBox.add(btnLogout);
 

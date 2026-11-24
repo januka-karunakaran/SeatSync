@@ -15,14 +15,16 @@ import java.awt.geom.AffineTransform;
 import java.awt.geom.Path2D;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
+import java.io.File;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.imageio.ImageIO;
 import javax.swing.ImageIcon;
 
 /**
  * Procedural cinema asset generator and memory image cache.
  * Provides original, branded vector-rendered cinema poster collages,
- * genre-themed movie artwork, and UI iconography inspired by Netflix and Movieto.
+ * authentic movie poster artworks, and UI iconography inspired by Netflix and Movieto.
  */
 public final class ImageResourceManager {
 
@@ -30,6 +32,8 @@ public final class ImageResourceManager {
 
     // Curated catalog of fictional cinematic poster data for background collage rendering
     private static final CollagePoster[] COLLAGE_POSTERS = {
+        new CollagePoster("PHANTOM OF OPERA", "MUSICAL", new Color(0x3E, 0x2A, 0x14), new Color(0xC5, 0x9B, 0x27), "★ 9.3", "IMAX"),
+        new CollagePoster("LES MISÉRABLES", "DRAMA", new Color(0x1B, 0x24, 0x30), new Color(0x8B, 0x1E, 0x22), "★ 9.1", "4K"),
         new CollagePoster("INTERSTELLAR", "SCI-FI", new Color(0x15, 0x22, 0x5C), new Color(0x5E, 0x35, 0xB1), "★ 8.9", "4K"),
         new CollagePoster("AVATAR II", "ADVENTURE", new Color(0x00, 0x4D, 0x61), new Color(0x00, 0xA8, 0xBC), "★ 8.4", "3D"),
         new CollagePoster("CYBERPUNK 2077", "ACTION", new Color(0x56, 0x00, 0x5E), new Color(0xE9, 0x1E, 0x63), "★ 8.7", "IMAX"),
@@ -42,15 +46,33 @@ public final class ImageResourceManager {
         new CollagePoster("TOP GUN", "ACTION", new Color(0x5C, 0x38, 0x0E), new Color(0xFF, 0xB3, 0x00), "★ 8.3", "IMAX"),
         new CollagePoster("INCEPTION", "THRILLER", new Color(0x21, 0x2D, 0x3D), new Color(0x60, 0x7D, 0x8B), "★ 8.8", "4K"),
         new CollagePoster("GLADIATOR II", "ACTION", new Color(0x59, 0x12, 0x17), new Color(0xD3, 0x2F, 0x2F), "★ 8.6", "IMAX"),
-        new CollagePoster("ZOOTOPIA II", "ANIMATION", new Color(0x45, 0x27, 0x78), new Color(0xBA, 0x68, 0xC8), "★ 8.2", "3D"),
-        new CollagePoster("PREY OF NIGHT", "HORROR", new Color(0x3B, 0x0B, 0x12), new Color(0xC2, 0x18, 0x5B), "★ 7.9", "4K"),
-        new CollagePoster("GRAND SYMPHONY", "DRAMA", new Color(0x1F, 0x29, 0x52), new Color(0x3F, 0x51, 0xB5), "★ 8.5", "IMAX")
+        new CollagePoster("ZOOTOPIA II", "ANIMATION", new Color(0x45, 0x27, 0x78), new Color(0xBA, 0x68, 0xC8), "★ 8.2", "3D")
     };
 
     private record CollagePoster(String title, String genre, Color primary, Color secondary, String rating, String badge) {}
 
     private ImageResourceManager() {
         // utility class
+    }
+
+    /**
+     * Loads a raster image file from resources or file system fallback.
+     */
+    public static BufferedImage loadResourceImage(String path) {
+        try (var is = ImageResourceManager.class.getResourceAsStream(path)) {
+            if (is != null) {
+                return ImageIO.read(is);
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            File f = new File("src/main/resources" + path);
+            if (f.exists()) {
+                return ImageIO.read(f);
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     /**
@@ -103,6 +125,101 @@ public final class ImageResourceManager {
     }
 
     /**
+     * Generates the Cinema Auditorium Banner with screen, red curtains, seats, and "Online Booking".
+     *
+     * @param width  Banner width
+     * @param height Banner height
+     * @return Formatted cinema auditorium banner
+     */
+    public static Image getCinemaAuditoriumBanner(int width, int height) {
+        if (width <= 0 || height <= 0) {
+            return null;
+        }
+        String key = "auditorium_banner_" + width + "x" + height;
+        return CACHE.computeIfAbsent(key, k -> {
+            BufferedImage src = loadResourceImage("/images/cinema_auditorium_banner.jpg");
+            if (src == null) {
+                return getCinematicHeroBanner(width, height);
+            }
+            BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2 = image.createGraphics();
+            SeatSyncTheme.enableAntiAliasing(g2);
+            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+
+            // Cover the container
+            g2.drawImage(src, 0, 0, width, height, null);
+
+            // Left-to-right dark scrim so text on the left is crisp and clear
+            GradientPaint leftScrim = new GradientPaint(
+                0, 0, new Color(0x10, 0x10, 0x14, 235),
+                (int) (width * 0.58), 0, new Color(0x10, 0x10, 0x14, 60)
+            );
+            g2.setPaint(leftScrim);
+            g2.fillRect(0, 0, width, height);
+
+            // Subtle top/bottom edge vignette
+            GradientPaint verticalScrim = new GradientPaint(
+                0, 0, new Color(0x10, 0x10, 0x14, 140),
+                0, height, new Color(0x10, 0x10, 0x14, 180)
+            );
+            g2.setPaint(verticalScrim);
+            g2.fillRect(0, 0, width, height);
+
+            g2.dispose();
+            return image;
+        });
+    }
+
+    /**
+     * Generates the Popcorn, Soda, Golden Ticket and Concessions Banner for My Tickets page.
+     *
+     * @param width  Banner width
+     * @param height Banner height
+     * @return Formatted popcorn & concessions banner
+     */
+    public static Image getPopcornConcessionsBanner(int width, int height) {
+        if (width <= 0 || height <= 0) {
+            return null;
+        }
+        String key = "popcorn_banner_" + width + "x" + height;
+        return CACHE.computeIfAbsent(key, k -> {
+            BufferedImage src = loadResourceImage("/images/popcorn_concessions.jpg");
+            BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2 = image.createGraphics();
+            SeatSyncTheme.enableAntiAliasing(g2);
+            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+
+            // Deep cinema dark background
+            g2.setColor(new Color(0x13, 0x15, 0x1E));
+            g2.fillRect(0, 0, width, height);
+
+            if (src != null) {
+                // Draw popcorn image on the right portion of the banner
+                int imgH = height;
+                int imgW = (int) (imgH * ((double) src.getWidth() / src.getHeight()));
+                int imgX = width - imgW + 20;
+                g2.drawImage(src, imgX, 0, imgW, imgH, null);
+
+                // Blend gradient overlay fading smoothly towards the left
+                GradientPaint leftFade = new GradientPaint(
+                    0, 0, new Color(0x13, 0x15, 0x1E, 255),
+                    (int) (width * 0.52), 0, new Color(0x13, 0x15, 0x1E, 40)
+                );
+                g2.setPaint(leftFade);
+                g2.fillRect(0, 0, width, height);
+            }
+
+            // Golden border accent
+            g2.setColor(new Color(0xD8, 0xD0, 0xF2, 40));
+            g2.setStroke(new BasicStroke(1.2f));
+            g2.drawRoundRect(0, 0, width - 1, height - 1, 14, 14);
+
+            g2.dispose();
+            return image;
+        });
+    }
+
+    /**
      * Generates a cinematic tilted movie poster collage background (Netflix & Movieto style).
      * Populates the canvas with isometric angled movie posters, glowing accents, and dark gradient overlays.
      *
@@ -114,7 +231,7 @@ public final class ImageResourceManager {
         if (width <= 0 || height <= 0) {
             return null;
         }
-        String key = "hero_banner_collage_v2_" + width + "x" + height;
+        String key = "hero_banner_collage_v3_" + width + "x" + height;
         return CACHE.computeIfAbsent(key, k -> {
             BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
             Graphics2D g2 = image.createGraphics();
@@ -142,6 +259,10 @@ public final class ImageResourceManager {
             int startY = -height - 100;
             int endY = height + height + 100;
 
+            // Pre-load official movie posters if available for the collage
+            BufferedImage phantomSrc = loadResourceImage("/images/poster_phantom_opera.jpg");
+            BufferedImage miserablesSrc = loadResourceImage("/images/poster_les_miserables.jpg");
+
             int colIndex = 0;
             for (int x = startX; x < endX; x += stepX) {
                 int rowIndex = 0;
@@ -150,7 +271,13 @@ public final class ImageResourceManager {
                     int posterIndex = Math.abs((colIndex * 7 + rowIndex * 3)) % COLLAGE_POSTERS.length;
                     CollagePoster cp = COLLAGE_POSTERS[posterIndex];
 
-                    drawCollageCard(g2, x, y, cardW, cardH, cp);
+                    if (posterIndex == 0 && phantomSrc != null) {
+                        drawRealPosterCard(g2, x, y, cardW, cardH, phantomSrc, cp);
+                    } else if (posterIndex == 1 && miserablesSrc != null) {
+                        drawRealPosterCard(g2, x, y, cardW, cardH, miserablesSrc, cp);
+                    } else {
+                        drawCollageCard(g2, x, y, cardW, cardH, cp);
+                    }
                     rowIndex++;
                 }
                 colIndex++;
@@ -158,8 +285,7 @@ public final class ImageResourceManager {
 
             g2.setTransform(savedTransform);
 
-            // 3. Dark cinematic gradient overlays (subtle enough to let movie covers shine, dark enough for text)
-            // Left-to-right fade: darker on far-left where text resides (185 alpha), transparent on right (40 alpha)
+            // 3. Dark cinematic gradient overlays
             GradientPaint leftScrim = new GradientPaint(
                 0, 0, new Color(0x10, 0x10, 0x14, 195),
                 (int) (width * 0.65), 0, new Color(0x10, 0x10, 0x14, 50)
@@ -167,7 +293,7 @@ public final class ImageResourceManager {
             g2.setPaint(leftScrim);
             g2.fillRect(0, 0, width, height);
 
-            // Vertical vignette (soft top and bottom edges)
+            // Vertical vignette
             GradientPaint verticalScrim = new GradientPaint(
                 0, 0, new Color(0x10, 0x10, 0x14, 150),
                 0, height, new Color(0x10, 0x10, 0x14, 215)
@@ -195,20 +321,43 @@ public final class ImageResourceManager {
         });
     }
 
-    /**
-     * Helper to render a single movie poster card within the tilted collage.
-     */
+    private static void drawRealPosterCard(Graphics2D g2, int x, int y, int w, int h, BufferedImage src, CollagePoster cp) {
+        RoundRectangle2D.Float cardShape = new RoundRectangle2D.Float(x, y, w, h, 10, 10);
+        Graphics2D gClip = (Graphics2D) g2.create();
+        gClip.clip(cardShape);
+        gClip.drawImage(src, x, y, w, h, null);
+
+        // Dark gradient at bottom of poster
+        GradientPaint bottomFade = new GradientPaint(
+            x, y + (int) (h * 0.55), new Color(0, 0, 0, 0),
+            x, y + h, new Color(0, 0, 0, 230)
+        );
+        gClip.setPaint(bottomFade);
+        gClip.fillRect(x, y + (int) (h * 0.50), w, (int) (h * 0.50));
+
+        // Top mini badges
+        gClip.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 8));
+        gClip.setColor(new Color(255, 255, 255, 230));
+        gClip.drawString(cp.badge(), x + 8, y + 16);
+
+        gClip.setColor(new Color(255, 215, 0, 240));
+        gClip.drawString(cp.rating(), x + w - 34, y + 16);
+
+        gClip.dispose();
+
+        g2.setColor(new Color(255, 255, 255, 60));
+        g2.setStroke(new BasicStroke(1.2f));
+        g2.draw(cardShape);
+    }
+
     private static void drawCollageCard(Graphics2D g2, int x, int y, int w, int h, CollagePoster cp) {
         RoundRectangle2D.Float cardShape = new RoundRectangle2D.Float(x, y, w, h, 10, 10);
 
-        // Poster backdrop gradient
         GradientPaint cardGrad = new GradientPaint(x, y, cp.secondary(), x, y + h, cp.primary());
         g2.setPaint(cardGrad);
         g2.fill(cardShape);
 
-        // Vector illustration motif based on genre
         if ("SCI-FI".equals(cp.genre())) {
-            // Planet ring and glowing stars
             g2.setColor(new Color(255, 255, 255, 180));
             g2.fillOval(x + w / 2 - 18, y + h / 3 - 18, 36, 36);
             g2.setColor(new Color(0xD8, 0xD0, 0xF2, 210));
@@ -217,7 +366,6 @@ public final class ImageResourceManager {
             g2.fillOval(x + 16, y + 24, 3, 3);
             g2.fillOval(x + w - 24, y + 36, 3, 3);
         } else if ("ACTION".equals(cp.genre())) {
-            // Blazing sunburst and dynamic speed trails
             g2.setColor(new Color(255, 220, 100, 150));
             g2.fillOval(x + w / 2 - 22, y + h / 3 - 22, 44, 44);
             g2.setColor(new Color(255, 255, 255, 100));
@@ -225,14 +373,12 @@ public final class ImageResourceManager {
             g2.drawLine(x + 10, y + h / 2, x + w - 10, y + 20);
             g2.drawLine(x + 20, y + h / 2 + 10, x + w - 15, y + 35);
         } else if ("ANIMATION".equals(cp.genre()) || "FANTASY".equals(cp.genre())) {
-            // Sparkles, magical clouds and glowing circles
             g2.setColor(new Color(255, 255, 255, 160));
             g2.fillOval(x + w / 2 - 16, y + h / 3 - 16, 32, 32);
             g2.fillOval(x + 16, y + 22, 5, 5);
             g2.fillOval(x + w - 22, y + 36, 6, 6);
             g2.fillOval(x + 24, y + h / 2, 4, 4);
         } else {
-            // Film camera / spotlight cone
             g2.setColor(new Color(255, 255, 255, 80));
             Path2D.Float beam = new Path2D.Float();
             beam.moveTo(x + w / 2, y + 16);
@@ -242,7 +388,6 @@ public final class ImageResourceManager {
             g2.fill(beam);
         }
 
-        // Top mini badges (Rating & 4K/IMAX)
         g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 8));
         g2.setColor(new Color(255, 255, 255, 230));
         g2.drawString(cp.badge(), x + 8, y + 16);
@@ -250,7 +395,6 @@ public final class ImageResourceManager {
         g2.setColor(new Color(255, 215, 0, 240));
         g2.drawString(cp.rating(), x + w - 34, y + 16);
 
-        // Bottom title gradient scrim
         GradientPaint bottomFade = new GradientPaint(
             x, y + (int) (h * 0.50), new Color(0, 0, 0, 0),
             x, y + h, new Color(0, 0, 0, 235)
@@ -258,7 +402,6 @@ public final class ImageResourceManager {
         g2.setPaint(bottomFade);
         g2.fillRoundRect(x, y + (int) (h * 0.48), w, (int) (h * 0.52), 10, 10);
 
-        // Poster title
         g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 10));
         java.awt.FontMetrics tfm = g2.getFontMetrics();
         String dt = cp.title();
@@ -267,19 +410,16 @@ public final class ImageResourceManager {
         }
         int tx = x + (w - tfm.stringWidth(dt)) / 2;
 
-        // Shadow and text
         g2.setColor(new Color(0, 0, 0, 220));
         g2.drawString(dt, tx + 1, y + h - 17);
         g2.setColor(UIColors.PURE_WHITE);
         g2.drawString(dt, tx, y + h - 18);
 
-        // Genre label
         g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 8));
         g2.setColor(new Color(0xD8, 0xD0, 0xF2, 230));
         int gx = x + (w - g2.getFontMetrics().stringWidth(cp.genre())) / 2;
         g2.drawString(cp.genre(), gx, y + h - 6);
 
-        // Subtle card border
         g2.setColor(new Color(255, 255, 255, 60));
         g2.setStroke(new BasicStroke(1.2f));
         g2.draw(cardShape);
@@ -287,10 +427,6 @@ public final class ImageResourceManager {
 
     /**
      * Generates an eye icon for toggling password visibility.
-     *
-     * @param show If true, renders an open eye; if false, renders a slashed eye
-     * @param size Size in pixels
-     * @return Icon image
      */
     public static ImageIcon getEyeIcon(boolean show, int size) {
         String key = "eye_" + show + "_" + size;
@@ -307,11 +443,9 @@ public final class ImageResourceManager {
             int h = size / 2;
             int y = (size - h) / 2;
 
-            // Eye outline
             g2.drawArc(pad, y, w, h, 0, 180);
             g2.drawArc(pad, y, w, h, 0, -180);
 
-            // Pupil
             int pupilSize = size / 4;
             g2.fillOval((size - pupilSize) / 2, (size - pupilSize) / 2, pupilSize, pupilSize);
 
@@ -327,14 +461,15 @@ public final class ImageResourceManager {
     }
 
     /**
-     * Creates a high-detail, authentic cinematic movie poster graphic with genre-tailored artwork,
-     * glassmorphic badges, IMAX banner, rating stars, and professional cinema typography.
+     * Creates a movie poster graphic. If an official movie poster is available in resources
+     * (e.g. Phantom of the Opera or Les Misérables), it renders the real poster; otherwise
+     * it procedurally synthesizes a rich cinematic poster.
      *
      * @param title  Movie title
      * @param genre  Movie genre
      * @param width  Poster width
      * @param height Poster height
-     * @return Procedural movie poster
+     * @return Formatted movie poster
      */
     public static Image getMoviePoster(String title, String genre, int width, int height) {
         if (width <= 0 || height <= 0) {
@@ -342,9 +477,38 @@ public final class ImageResourceManager {
         }
         String cleanTitle = (title != null && !title.isBlank()) ? title.trim() : "Cinema Feature";
         String cleanGenre = (genre != null && !genre.isBlank()) ? genre.trim().toUpperCase() : "CINEMA";
-        String key = "poster_" + cleanTitle + "_" + cleanGenre + "_" + width + "x" + height;
+        String key = "poster_v3_" + cleanTitle + "_" + cleanGenre + "_" + width + "x" + height;
 
         return CACHE.computeIfAbsent(key, k -> {
+            String norm = cleanTitle.toLowerCase();
+            BufferedImage realPoster = null;
+
+            if (norm.contains("phantom") || norm.contains("opera") || norm.contains("fantôme")) {
+                realPoster = loadResourceImage("/images/poster_phantom_opera.jpg");
+            } else if (norm.contains("misérables") || norm.contains("miserables") || norm.contains("les mis")) {
+                realPoster = loadResourceImage("/images/poster_les_miserables.jpg");
+            }
+
+            if (realPoster != null) {
+                BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g2 = image.createGraphics();
+                SeatSyncTheme.enableAntiAliasing(g2);
+                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+
+                RoundRectangle2D.Float clip = new RoundRectangle2D.Float(0, 0, width, height, 12, 12);
+                g2.clip(clip);
+                g2.drawImage(realPoster, 0, 0, width, height, null);
+
+                // Subtle card border
+                g2.setColor(new Color(255, 255, 255, 50));
+                g2.setStroke(new BasicStroke(1.2f));
+                g2.drawRoundRect(0, 0, width - 1, height - 1, 12, 12);
+
+                g2.dispose();
+                return image;
+            }
+
+            // Fallback to stylized vector poster
             BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
             Graphics2D g2 = image.createGraphics();
             SeatSyncTheme.enableAntiAliasing(g2);
@@ -352,7 +516,6 @@ public final class ImageResourceManager {
             RoundRectangle2D.Float posterClip = new RoundRectangle2D.Float(0, 0, width, height, 12, 12);
             g2.clip(posterClip);
 
-            // Determine thematic color palette based on genre or title hash
             Color topGrad;
             Color botGrad;
             Color accentColor;
@@ -373,7 +536,7 @@ public final class ImageResourceManager {
                 topGrad = new Color(0x4A, 0x0E, 0x14);
                 botGrad = new Color(0x0D, 0x08, 0x09);
                 accentColor = new Color(0xE6, 0x39, 0x46);
-            } else if (cleanGenre.contains("DRAMA") || cleanGenre.contains("ROMANCE")) {
+            } else if (cleanGenre.contains("DRAMA") || cleanGenre.contains("ROMANCE") || cleanGenre.contains("MUSICAL")) {
                 topGrad = new Color(0x28, 0x30, 0x54);
                 botGrad = new Color(0x0E, 0x11, 0x1F);
                 accentColor = new Color(0xD8, 0xD0, 0xF2);
@@ -394,7 +557,6 @@ public final class ImageResourceManager {
             int centerY = (int) (height * 0.38);
 
             if (cleanGenre.contains("SCI-FI") || cleanGenre.contains("SPACE")) {
-                // Celestial glowing sphere and rings
                 g2.setColor(new Color(255, 255, 255, 22));
                 g2.fillOval(centerX - 48, centerY - 48, 96, 96);
                 g2.setColor(accentColor);
@@ -404,14 +566,12 @@ public final class ImageResourceManager {
                 g2.setStroke(new BasicStroke(1.8f));
                 g2.drawOval(centerX - 38, centerY - 10, 76, 20);
 
-                // Starfield dots
                 g2.setColor(new Color(255, 255, 255, 180));
                 g2.fillOval(16, 28, 2, 2);
                 g2.fillOval(width - 24, 42, 2, 2);
                 g2.fillOval(28, height / 2, 2, 2);
                 g2.fillOval(width - 32, height / 2 - 20, 2, 2);
             } else if (cleanGenre.contains("ACTION")) {
-                // Explosive horizon and diagonal speed streaks
                 g2.setPaint(new GradientPaint(
                     centerX, centerY - 30, new Color(255, 220, 120, 180),
                     centerX, centerY + 30, new Color(255, 60, 20, 0)
@@ -423,7 +583,6 @@ public final class ImageResourceManager {
                 g2.drawLine(14, centerY + 28, width - 14, centerY - 28);
                 g2.drawLine(24, centerY + 36, width - 20, centerY - 18);
             } else {
-                // Cinema Projector Beam & Reel
                 g2.setColor(new Color(255, 255, 255, 45));
                 Path2D.Float cone = new Path2D.Float();
                 cone.moveTo(centerX, centerY - 28);
@@ -462,7 +621,7 @@ public final class ImageResourceManager {
             int btw = g2.getFontMetrics().stringWidth(badgeText);
             g2.drawString(badgeText, badgeX + (badgeW - btw) / 2, badgeY + 11);
 
-            // 4. Dark Bottom Scrim to ensure crisp typography
+            // 4. Dark Bottom Scrim
             GradientPaint bottomScrim = new GradientPaint(
                 0, (int) (height * 0.52), new Color(0, 0, 0, 0),
                 0, height, new Color(0x0C, 0x0C, 0x12, 245)
@@ -502,11 +661,9 @@ public final class ImageResourceManager {
             int tx = (width - tfm.stringWidth(displayTitle)) / 2;
             int ty = (int) (height * 0.85);
 
-            // Drop shadow for title
             g2.setColor(new Color(0, 0, 0, 220));
             g2.drawString(displayTitle, tx + 1, ty + 1);
 
-            // Title text
             g2.setColor(UIColors.PURE_WHITE);
             g2.drawString(displayTitle, tx, ty);
 
@@ -517,7 +674,6 @@ public final class ImageResourceManager {
             int stx = (width - g2.getFontMetrics().stringWidth(subText)) / 2;
             g2.drawString(subText, stx, height - 8);
 
-            // Outer subtle border
             g2.setColor(new Color(255, 255, 255, 50));
             g2.setStroke(new BasicStroke(1.2f));
             g2.drawRoundRect(0, 0, width - 1, height - 1, 12, 12);

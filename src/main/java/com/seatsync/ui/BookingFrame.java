@@ -566,6 +566,53 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         );
         page.add(header, BorderLayout.NORTH);
 
+        // Cinema Concessions & Ticket Pass Banner (Popcorn, Soda & Golden Ticket Art)
+        RoundedPanel concessionsBanner = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.SURFACE_DARK, UIColors.DARK_BORDER, 1, true) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                int w = getWidth();
+                int h = getHeight();
+                if (w > 0 && h > 0) {
+                    Image bannerImg = ImageResourceManager.getPopcornConcessionsBanner(w, h);
+                    if (bannerImg != null) {
+                        Graphics2D g2 = (Graphics2D) g.create();
+                        SeatSyncTheme.enableAntiAliasing(g2);
+                        g2.clip(new java.awt.geom.RoundRectangle2D.Float(0, 0, w, h, UISpacing.RADIUS_LARGE, UISpacing.RADIUS_LARGE));
+                        g2.drawImage(bannerImg, 0, 0, w, h, this);
+                        g2.dispose();
+                    }
+                }
+            }
+        };
+        concessionsBanner.setLayout(new BorderLayout(14, 6));
+        concessionsBanner.setBorder(BorderFactory.createEmptyBorder(16, 20, 16, 20));
+        concessionsBanner.setPreferredSize(new Dimension(0, 100));
+        concessionsBanner.setMaximumSize(new Dimension(Integer.MAX_VALUE, 100));
+
+        JPanel bannerText = new JPanel();
+        bannerText.setLayout(new BoxLayout(bannerText, BoxLayout.Y_AXIS));
+        bannerText.setOpaque(false);
+
+        JLabel bannerTag = new JLabel("CINEMA CONCESSIONS & ADMISSION");
+        bannerTag.setFont(UIFonts.BADGE);
+        bannerTag.setForeground(UIColors.LAVENDER_PRIMARY);
+
+        JLabel bannerTitle = new JLabel("Fast-Track Admission & Concession Combos");
+        bannerTitle.setFont(UIFonts.TITLE_MEDIUM);
+        bannerTitle.setForeground(UIColors.PURE_WHITE);
+
+        JLabel bannerSub = new JLabel("Present your digital ticket QR code at the entrance scanner to redeem complimentary popcorn & drinks.");
+        bannerSub.setFont(UIFonts.BODY_SMALL);
+        bannerSub.setForeground(new Color(0xD8, 0xD5, 0xE3));
+
+        bannerText.add(bannerTag);
+        bannerText.add(Box.createVerticalStrut(4));
+        bannerText.add(bannerTitle);
+        bannerText.add(Box.createVerticalStrut(4));
+        bannerText.add(bannerSub);
+        concessionsBanner.add(bannerText, BorderLayout.CENTER);
+
         RoundedPanel tableCard = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.PURE_WHITE, UIColors.LIGHT_BORDER, 1, true);
         tableCard.setLayout(new BorderLayout());
         tableCard.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -575,7 +622,14 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         scrollPane.getViewport().setBackground(UIColors.PURE_WHITE);
         tableCard.add(scrollPane, BorderLayout.CENTER);
 
-        page.add(tableCard, BorderLayout.CENTER);
+        JPanel centerContainer = new JPanel();
+        centerContainer.setLayout(new BoxLayout(centerContainer, BoxLayout.Y_AXIS));
+        centerContainer.setOpaque(false);
+        centerContainer.add(concessionsBanner);
+        centerContainer.add(Box.createVerticalStrut(10));
+        centerContainer.add(tableCard);
+
+        page.add(centerContainer, BorderLayout.CENTER);
 
         lblTicketState = new JLabel("No booking history loaded.");
         lblTicketState.setFont(UIFonts.CAPTION);
@@ -750,7 +804,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         home.setBackground(UIColors.SOFT_WHITE);
         home.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 14));
 
-        // Top Cinematic Hero Section (Netflix inspiration with tilted movie poster collage)
+        // Top Cinematic Hero Section (Auditorium Screen & Online Booking Banner)
         RoundedPanel heroPanel = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.SURFACE_DARK, UIColors.DARK_BORDER, 1, true) {
             @Override
             protected void paintComponent(Graphics g) {
@@ -758,19 +812,12 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
                 int w = getWidth();
                 int h = getHeight();
                 if (w > 0 && h > 0) {
-                    Image heroBg = ImageResourceManager.getCinematicHeroBanner(w, h);
+                    Image heroBg = ImageResourceManager.getCinemaAuditoriumBanner(w, h);
                     if (heroBg != null) {
                         Graphics2D g2 = (Graphics2D) g.create();
                         SeatSyncTheme.enableAntiAliasing(g2);
                         g2.clip(new java.awt.geom.RoundRectangle2D.Float(0, 0, w, h, UISpacing.RADIUS_LARGE, UISpacing.RADIUS_LARGE));
                         g2.drawImage(heroBg, 0, 0, w, h, this);
-                        // Text scrim overlay to keep buttons and headlines razor sharp
-                        GradientPaint textScrim = new GradientPaint(
-                            0, 0, new Color(0x10, 0x10, 0x14, 230),
-                            (int) (w * 0.60), 0, new Color(0x10, 0x10, 0x14, 75)
-                        );
-                        g2.setPaint(textScrim);
-                        g2.fillRect(0, 0, w, h);
                         g2.dispose();
                     }
                 }
@@ -922,7 +969,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         }
     }
 
-    private void showPage(String page) {
+    void showPage(String page) {
         pageLayout.show(pageCards, page);
         switch (page) {
             case "Movies" -> requestMovies();

@@ -10,7 +10,7 @@ import javax.swing.UIManager;
  * Main application launcher for the SeatSync desktop client.
  * Parses command-line endpoint parameters and launches the Swing presentation layer.
  * <p>
- * Owned by Member 01 (TCP Socket Programming & Desktop Client).
+ * Owned by Member 05 (Desktop UI & Presentation).
  */
 public final class SeatSyncClient {
 

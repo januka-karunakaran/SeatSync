@@ -23,6 +23,7 @@ public final class TrustedTlsSocket {
             secure.setSSLParameters(TlsContextFactory.clientParameters());
             secure.setSoTimeout(timeoutMillis);
             secure.startHandshake();
+            secure.setSoTimeout(0);
             return secure;
         } catch (IOException | RuntimeException failure) {
             try { if (secure != null) { secure.close(); } else { transport.close(); } }

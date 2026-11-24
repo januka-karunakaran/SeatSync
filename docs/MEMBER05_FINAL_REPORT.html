@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>SeatSync Member 05 Final Report</title>
+  <style>
+    @page { size: A4; margin: 16mm; }
+    body { font: 10pt Arial, sans-serif; color: #17212b; line-height: 1.4; }
+    h1 { color: #153f72; font-size: 24pt; margin: 0 0 8pt; }
+    h2 { color: #153f72; font-size: 15pt; margin: 18pt 0 6pt; }
+    h3 { font-size: 11pt; margin: 12pt 0 4pt; }
+    p { margin: 4pt 0 8pt; }
+    ul { margin: 4pt 0 8pt; padding-left: 20pt; }
+    li { margin: 2pt 0; }
+    table { width: 100%; border-collapse: collapse; margin: 8pt 0 12pt; }
+    th, td { border: 1px solid #b9c5d0; padding: 6pt; text-align: left; vertical-align: top; }
+    th { background: #eaf1f8; }
+    .subtitle { color: #526476; font-size: 12pt; }
+    .callout { background: #eef6ff; border-left: 4px solid #1565c0; padding: 9pt 12pt; margin: 10pt 0; }
+    .warning { background: #fff5e6; border-left: 4px solid #ef6c00; padding: 9pt 12pt; margin: 10pt 0; }
+    .meta { color: #526476; font-size: 9pt; }
+    .page-break { page-break-before: always; }
+    figure { margin: 8pt 0 0; page-break-inside: avoid; }
+    figure img { width: 100%; height: auto; max-height: 235mm; object-fit: contain; }
+    figcaption { color: #526476; font-size: 9pt; margin-top: 5pt; }
+    code { font-family: monospace; font-size: 9pt; }
+    .small { font-size: 9pt; }
+  </style>
+</head>
+<body>
+  <h1>SeatSync - Member 05 Report</h1>
+  <p class="subtitle">Desktop presentation, client networking, and three-client live validation</p>
+  <p class="meta">Prepared 24 November 2026 | Branch: upgrade/04-ui-navigation | Source base: c3e40f8</p>
+
+  <div class="callout">
+    <strong>Outcome:</strong> Three separate Swing clients authenticated to the same loopback server.
+    Carol held seat A1, and Alice and Bob displayed the server-pushed held state without refreshing.
+    Captures of all three client windows are included in this report.
+  </div>
+
+  <h2>Member 05 scope delivered</h2>
+  <ul>
+    <li>Swing navigation for Home, Movies, Shows, Seat Map, My Tickets, Waitlist, and role-gated Admin.</li>
+    <li>Customer workflows for catalog browsing, seat selection, booking/hold/release/confirmation, tickets, booking history, and waitlist.</li>
+    <li>Asynchronous JSON/TCP client requests and server event updates, with Swing presentation changes applied on the Event Dispatch Thread.</li>
+    <li>UDP discovery and an explicit TLS 1.3 client path using a configured truststore; secure connection failures do not fall back to plaintext.</li>
+    <li>Accessible connection/loading/error/empty states and distinct seat styling for open, held, booked, and selected states.</li>
+  </ul>
+
+  <h2>Three-client demonstration</h2>
+  <table>
+    <tr><th>Item</th><th>Observed result</th></tr>
+    <tr><td>Server</td><td>Local NIO server bound to 127.0.0.1:18080; state was in memory.</td></tr>
+    <tr><td>Clients</td><td>Three independent Swing client processes authenticated as alice, bob, and carol; three TCP connections were established concurrently.</td></tr>
+    <tr><td>Action</td><td>Carol placed a 120-second hold on A1 in SHOW-01.</td></tr>
+    <tr><td>Propagation</td><td>Alice and Bob received the live seat update and rendered A1 as Held; their activity logs show the updated event versions.</td></tr>
+    <tr><td>Visual correction</td><td>The live check exposed blank sidebar labels under the platform Look and Feel. The navigation now uses the existing cross-platform ThemedButton, and a regression assertion covers selected/unselected colors.</td></tr>
+  </table>
+
+  <h2>Automated verification</h2>
+  <p><strong>Command:</strong> <code>mvn clean test</code> (Java 21 runtime; Maven compiler targets Java 17).</p>
+  <p><strong>Result after the UI and transport fixes:</strong> 137 tests, 0 failures, 0 errors, 0 skipped; BUILD SUCCESS.</p>
+  <p>The suite includes client TLS trust/rejection/no-downgrade checks, event dispatch, navigation, protocol contracts, authentication/authorization, booking, and server integration tests.</p>
+
+  <h2>U14 secure-client follow-up</h2>
+  <p>A separate TLS-required localhost server was started with a temporary PKCS12 certificate containing the 127.0.0.1 identity. The desktop client discovered the server, displayed “TLS required,” and completed a trusted TLS 1.3 login after selecting the loopback address. UDP discovery returned the required-TLS flag and secure port. The first idle-session check exposed that the handshake timeout was still applied after the TLS handshake; this was corrected, and a regression test now verifies the TLS client stays connected beyond that timeout and can still exchange a request.</p>
+  <figure>
+    <img src="evidence/member05-discovery-tls-required.png" alt="SeatSync server discovery dialog marks the endpoint as TLS required">
+    <figcaption>Live discovery dialog showing the server’s TLS-required flag and secure port.</figcaption>
+  </figure>
+
+  <h2>Security and transport limitations</h2>
+  <div class="warning">
+    The three-client concurrency screenshots use plaintext TCP bound to loopback only. They demonstrate
+    authentication, authorization/session behavior, and real-time updates; those screenshots do not
+    demonstrate TLS. A separate trusted localhost TLS 1.3 client login was also validated. The local
+    demo password and temporary certificate passwords are intentionally omitted.
+  </div>
+  <ul>
+    <li>Demo accounts and booking data are in-memory and reset when the server restarts. Demo credentials are for local testing only.</li>
+    <li>The TLS smoke test used a temporary local truststore and loopback certificate; it did not test a production CA or a real LAN deployment.</li>
+    <li>For the loopback-only server, discovery advertised the container's local interface address; the TLS client was pointed to 127.0.0.1 for the loopback-bound listener.</li>
+    <li>The 8080 port was already occupied by an unrelated listener, so that listener was left untouched and the demo used 18080.</li>
+  </ul>
+
+  <div class="page-break"></div>
+  <h2>Team ownership matrix</h2>
+  <p class="small">Roles below reproduce the repository's contribution guide. They describe package ownership, not independent verification of each member's individual commits or pull requests.</p>
+  <table>
+    <tr><th>Member</th><th>Documented focus</th><th>Primary ownership</th></tr>
+    <tr><td>01</td><td>Architecture and Java NIO server transport</td><td>Server socket, selector loop, connection lifecycle, server-side networking</td></tr>
+    <tr><td>02</td><td>Protocol contracts and serialization</td><td>Shared DTOs, JSON protocol, session abstraction and frame contracts</td></tr>
+    <tr><td>03</td><td>Booking engine and concurrency</td><td>In-memory reservations, worker dispatch and inventory state</td></tr>
+    <tr><td>04</td><td>Authentication and security</td><td>Credentials, authenticated sessions, authorization and request validation</td></tr>
+    <tr><td>05</td><td>Client networking and Swing presentation</td><td>TCP client, Swing UI, seat grid and event rendering</td></tr>
+  </table>
+
+  <h2>Repeatable local demonstration</h2>
+  <ol>
+    <li>Set <code>SEATSYNC_DEMO_PASSWORD</code> to a local-only test value without adding it to source control or logs.</li>
+    <li>Run the server on loopback, for example <code>mvn exec:java@server -Dexec.args="127.0.0.1 18080"</code>.</li>
+    <li>Launch three clients using <code>mvn exec:java@client -Dexec.args="127.0.0.1 18080"</code> and log in as alice, bob, and carol.</li>
+    <li>Open Seat Map in each client. Hold A1 from Carol and observe A1 change to Held in the other two clients without a manual refresh.</li>
+    <li>State the limitation clearly: this localhost run uses plaintext TCP; password hashing does not encrypt data in transit.</li>
+  </ol>
+
+  <p class="meta">The implementation and report are currently in the local working tree on upgrade/04-ui-navigation; they have not been committed or submitted as a pull request.</p>
+
+  <div class="page-break"></div>
+  <h2>Live client evidence - Alice</h2>
+  <figure>
+    <img src="evidence/member05-alice-seatmap.png" alt="Alice client shows seat A1 held by another client">
+    <figcaption>Alice is connected to 127.0.0.1:18080. The live update log advances to version 5 and A1 is shown as Held.</figcaption>
+  </figure>
+
+  <div class="page-break"></div>
+  <h2>Live client evidence - Bob</h2>
+  <figure>
+    <img src="evidence/member05-bob-seatmap.png" alt="Bob client shows seat A1 held by another client">
+    <figcaption>Bob is connected concurrently. The live update log advances to version 5 and A1 is shown as Held without refreshing.</figcaption>
+  </figure>
+
+  <div class="page-break"></div>
+  <h2>Live client evidence - Carol</h2>
+  <figure>
+    <img src="evidence/member05-carol-seatmap.png" alt="Carol client holds seat A1">
+    <figcaption>Carol owns the active A1 hold; the client displays the hold countdown and enables confirmation or release.</figcaption>
+  </figure>
+</body>
+</html>

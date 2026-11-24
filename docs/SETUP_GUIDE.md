@@ -85,9 +85,18 @@ mvn exec:java -Dexec.mainClass="com.seatsync.client.SeatSyncClient"
 ```
 *(The graphical Swing Login window will appear on your desktop.)*
 
+After login, use the left navigation to open Home, Movies, Shows, Seat Map, My
+Tickets, Waitlist, or Admin. The existing seat workflow remains under Seat Map;
+the v2 client also supports holds, waitlisting, ticket history, and admin
+management/monitoring. Admin controls require an ADMIN account. See
+[desktop client navigation](CLIENT_UI.md).
+
 The five demo usernames are `alice`, `bob`, `carol`, `dave`, and `erin`; use the
-locally configured demo password. TCP is not encrypted. See
-[security limitations](SECURITY_LIMITATIONS.md) before running the demo.
+locally configured demo password. The default local server is plaintext on
+loopback only. To use TLS, configure a trusted client PKCS12 truststore and
+select **Require TLS 1.3** in the login window; see
+[TLS and server discovery](CLIENT_TLS_DISCOVERY.md) and
+[security limitations](SECURITY_LIMITATIONS.md).
 
 ---
 

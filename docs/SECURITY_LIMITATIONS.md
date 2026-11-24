@@ -19,11 +19,13 @@ There is no automatic downgrade. TlsContextFactory/TrustedTlsSocket require an
 explicit public truststore and verify the server certificate's hostname/IP SAN.
 An unknown certificate, expired certificate or wrong hostname fails validation.
 
-The existing Swing TcpClient is still plaintext; M5 U14 must adopt the trusted socket
-provider. Switching the server to REQUIRED does not automatically upgrade the GUI.
-UDP discovery hints do not establish trust. The dev certificate is localhost-only,
-expires in 30 days, and must be verified by fingerprint over a trusted channel.
-Protect server private key filesystem permissions. No private key is committed.
+The Swing client now supports the trusted TLS socket provider. TLS remains an
+explicit client setting unless UDP discovery marks the server TLS-required.
+Switching a client to TLS without a configured truststore fails closed. UDP
+discovery hints do not establish trust. The development certificate is
+localhost-only, expires in 30 days, and must be verified by fingerprint over a
+trusted channel. Protect server private key filesystem permissions. No private
+key is committed.
 
 Audit stores at most 1000 in-memory metadata records and returns at most 20 per query.
 It never retains raw requests, password values, token bodies or cancellation reasons.

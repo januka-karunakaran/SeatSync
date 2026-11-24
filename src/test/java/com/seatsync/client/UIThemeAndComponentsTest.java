@@ -93,6 +93,9 @@ class UIThemeAndComponentsTest {
     @Test
     @DisplayName("LoginFrame instantiates with default dimensions and layout")
     void testLoginFrameInstantiation() {
+        if (java.awt.GraphicsEnvironment.isHeadless()) {
+            return; // Skip top-level native JFrame creation on headless CI runners
+        }
         LoginFrame login = new LoginFrame("127.0.0.1", 8080);
         assertNotNull(login);
         assertTrue(login.getWidth() >= 800);

@@ -199,6 +199,14 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     private transient JLabel lblSelectedMoviePoster;
     private transient ModernButton btnBookSelectedMovie;
 
+    // Stage 3: Cinema Seat Booking UI Components
+    private transient JLabel lblSeatMapPoster;
+    private transient JLabel lblSeatMapMovieTitle;
+    private transient JLabel lblSeatMapGenre;
+    private transient JLabel lblPriceSeat;
+    private transient JLabel lblPriceFee;
+    private transient JLabel lblPriceTotal;
+
     /**
      * Constructs the BookingFrame window.
      *
@@ -252,8 +260,8 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
 
     private void initUI() {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(1120, 760);
-        setMinimumSize(new Dimension(900, 620));
+        setSize(1240, 800);
+        setMinimumSize(new Dimension(960, 680));
         setLocationRelativeTo(null);
 
         JPanel contentPane = new JPanel(new BorderLayout());
@@ -292,24 +300,82 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     }
 
     private JPanel createSeatMapPage() {
-        JPanel seatMap = new JPanel(new BorderLayout(10, 10));
+        JPanel page = new JPanel(new BorderLayout(12, 12));
+        page.setBackground(UIColors.SOFT_WHITE);
+        page.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+
+        SectionHeader header = new SectionHeader(
+            "Cinema Seat Reservation",
+            "Select an available seat to place a hold or book directly in real time",
+            actionButton("Refresh Seats", this::requestSeatSnapshot)
+        );
+        page.add(header, BorderLayout.NORTH);
+
+        // 3-Column Split
+        JPanel threeColPanel = new JPanel(new BorderLayout(14, 0));
+        threeColPanel.setOpaque(false);
+
+        // 1. LEFT COLUMN: Movie & Show Info Card (FilmTIX style)
+        RoundedPanel leftMovieCard = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.PURE_WHITE, UIColors.LIGHT_BORDER, 1, true);
+        leftMovieCard.setLayout(new BoxLayout(leftMovieCard, BoxLayout.Y_AXIS));
+        leftMovieCard.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+        leftMovieCard.setPreferredSize(new Dimension(225, 0));
+
+        lblSeatMapPoster = new JLabel();
+        lblSeatMapPoster.setAlignmentX(CENTER_ALIGNMENT);
+
+        lblSeatMapMovieTitle = new JLabel("Grand Cinema");
+        lblSeatMapMovieTitle.setFont(UIFonts.TITLE_SMALL);
+        lblSeatMapMovieTitle.setForeground(UIColors.TEXT_DARK);
+        lblSeatMapMovieTitle.setAlignmentX(CENTER_ALIGNMENT);
+
+        lblSeatMapGenre = new JLabel("Feature Presentation");
+        lblSeatMapGenre.setFont(UIFonts.BADGE);
+        lblSeatMapGenre.setForeground(UIColors.DEEP_PURPLE);
+        lblSeatMapGenre.setAlignmentX(CENTER_ALIGNMENT);
+
+        JPanel infoBlock = new JPanel(new GridLayout(4, 1, 0, 6));
+        infoBlock.setOpaque(false);
+        infoBlock.setBorder(BorderFactory.createEmptyBorder(12, 2, 12, 2));
+        infoBlock.add(createInfoRow("Screen:", "Hall 1 (Atmos)"));
+        infoBlock.add(createInfoRow("Format:", "Digital 2D"));
+        infoBlock.add(createInfoRow("Price:", "$12.50"));
+        infoBlock.add(createInfoRow("Sync:", "Live Active"));
+
+        leftMovieCard.add(lblSeatMapPoster);
+        leftMovieCard.add(Box.createVerticalStrut(8));
+        leftMovieCard.add(lblSeatMapMovieTitle);
+        leftMovieCard.add(Box.createVerticalStrut(4));
+        leftMovieCard.add(lblSeatMapGenre);
+        leftMovieCard.add(Box.createVerticalStrut(8));
+        leftMovieCard.add(infoBlock);
+        leftMovieCard.add(Box.createVerticalGlue());
+
+        threeColPanel.add(leftMovieCard, BorderLayout.WEST);
+
+        // 2. CENTER COLUMN: Cinema Screen & Seat Grid Card
+        RoundedPanel centerCard = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.PURE_WHITE, UIColors.LIGHT_BORDER, 1, true);
+        centerCard.setLayout(new BorderLayout(8, 8));
+        centerCard.setBorder(BorderFactory.createEmptyBorder(14, 14, 14, 14));
+
         seatGridPanel = new SeatGridPanel();
         seatGridPanel.setCurrentUserId(userId);
         seatGridPanel.addSelectionListener(this::onSeatSelectionChanged);
-        lblSeatState = new JLabel("Loading seats...", SwingConstants.CENTER);
-        lblSeatState.setForeground(new Color(21, 101, 192));
-        seatMap.add(lblSeatState, BorderLayout.NORTH);
-        seatMap.add(seatGridPanel, BorderLayout.CENTER);
 
-        JPanel bottomContainer = new JPanel();
-        bottomContainer.setLayout(new BoxLayout(bottomContainer, BoxLayout.Y_AXIS));
-        lblHoldCountdown = new JLabel("No active seat hold", SwingConstants.CENTER);
-        bottomContainer.add(lblHoldCountdown);
-        bottomContainer.add(createActionControlsPanel());
-        bottomContainer.add(Box.createVerticalStrut(8));
-        bottomContainer.add(createLogPanel());
-        seatMap.add(bottomContainer, BorderLayout.SOUTH);
-        return seatMap;
+        lblSeatState = new JLabel("Real-time availability for show " + showId, SwingConstants.CENTER);
+        lblSeatState.setFont(UIFonts.BODY);
+        lblSeatState.setForeground(UIColors.TEXT_MUTED);
+
+        centerCard.add(lblSeatState, BorderLayout.NORTH);
+        centerCard.add(seatGridPanel, BorderLayout.CENTER);
+        threeColPanel.add(centerCard, BorderLayout.CENTER);
+
+        // 3. RIGHT COLUMN: Booking Summary Card & Action Controls
+        threeColPanel.add(createActionControlsPanel(), BorderLayout.EAST);
+
+        page.add(threeColPanel, BorderLayout.CENTER);
+        updateSeatMapMovieInfo();
+        return page;
     }
 
     private JPanel createMoviesPage() {
@@ -639,6 +705,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
             return;
         }
         this.selectedMovie = movie;
+        updateSeatMapMovieInfo();
         if (lblSelectedMovieTitle != null) {
             lblSelectedMovieTitle.setText("<html><center>" + movie.title() + "</center></html>");
             lblSelectedMovieGenre.setText(movie.genre());
@@ -772,6 +839,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
             subscribeToSelectedShow();
         }
         lblShowTitle.setText("Your SeatSync booking overview for " + showId);
+        updateSeatMapMovieInfo();
         requestSeatSnapshot();
         showPage("Seat Map");
     }
@@ -1029,68 +1097,142 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     }
 
     private JPanel createActionControlsPanel() {
-        JPanel panel = new JPanel(new BorderLayout(10, 5));
-        panel.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createTitledBorder("Seat Operations"),
-            BorderFactory.createEmptyBorder(6, 10, 6, 10)
-        ));
+        RoundedPanel summaryCard = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.PURE_WHITE, UIColors.LIGHT_BORDER, 1, true);
+        summaryCard.setLayout(new BoxLayout(summaryCard, BoxLayout.Y_AXIS));
+        summaryCard.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+        summaryCard.setPreferredSize(new Dimension(295, 0));
+
+        JLabel summaryTitle = new JLabel("Booking Summary");
+        summaryTitle.setFont(UIFonts.TITLE_SMALL);
+        summaryTitle.setForeground(UIColors.TEXT_DARK);
+        summaryTitle.setAlignmentX(LEFT_ALIGNMENT);
 
         // Selected seat display
         lblSelectedSeat = new JLabel("Selected Seat: None");
-        lblSelectedSeat.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        panel.add(lblSelectedSeat, BorderLayout.WEST);
+        lblSelectedSeat.setFont(UIFonts.BODY_BOLD);
+        lblSelectedSeat.setForeground(UIColors.TEXT_DARK);
+        lblSelectedSeat.setAlignmentX(LEFT_ALIGNMENT);
 
-        // Buttons
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        // Price breakdown box
+        JPanel priceBox = new JPanel(new GridLayout(3, 2, 4, 4));
+        priceBox.setOpaque(false);
+        priceBox.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(UIColors.LIGHT_BORDER, 1),
+            BorderFactory.createEmptyBorder(8, 10, 8, 10)
+        ));
+        priceBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 80));
+        priceBox.setAlignmentX(LEFT_ALIGNMENT);
 
-        btnBook = new ThemedButton("Book Seat", new Color(46, 125, 50), Color.WHITE);
-        btnBook.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        btnBook.setEnabled(false);
-        btnBook.addActionListener(e -> performBookSeat());
+        priceBox.add(createPriceLabel("Standard Ticket:"));
+        lblPriceSeat = createPriceValue("$0.00");
+        priceBox.add(lblPriceSeat);
 
-        btnHold = new ThemedButton("Hold Seat", new Color(239, 108, 0), Color.WHITE);
+        priceBox.add(createPriceLabel("Booking Fee:"));
+        lblPriceFee = createPriceValue("$0.00");
+        priceBox.add(lblPriceFee);
+
+        priceBox.add(createPriceLabel("Total:"));
+        lblPriceTotal = createPriceValue("$0.00");
+        lblPriceTotal.setFont(UIFonts.BODY_BOLD);
+        priceBox.add(lblPriceTotal);
+
+        // Hold countdown status badge / panel
+        JPanel holdBox = new JPanel(new FlowLayout(FlowLayout.CENTER, 4, 3));
+        holdBox.setBackground(new Color(0xF4, 0xF1, 0xFA));
+        holdBox.setBorder(BorderFactory.createLineBorder(UIColors.LIGHT_BORDER, 1));
+        holdBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        holdBox.setAlignmentX(LEFT_ALIGNMENT);
+
+        lblHoldCountdown = new JLabel("No active seat hold", SwingConstants.CENTER);
+        lblHoldCountdown.setFont(UIFonts.CAPTION);
+        lblHoldCountdown.setForeground(UIColors.TEXT_MUTED);
+        holdBox.add(lblHoldCountdown);
+
+        // Action Buttons
+        btnHold = new ThemedButton("Hold Seat (2 min)", new Color(0xE6, 0xA2, 0x3C), Color.WHITE);
+        btnHold.setFont(UIFonts.custom(Font.BOLD, 12));
+        btnHold.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
+        btnHold.setAlignmentX(LEFT_ALIGNMENT);
         btnHold.setEnabled(false);
         btnHold.addActionListener(e -> performHoldSeat());
 
-        btnConfirmHold = new ThemedButton("Confirm Hold", new Color(46, 125, 50), Color.WHITE);
+        btnConfirmHold = new ThemedButton("Confirm Booking", new Color(0x2E, 0x7D, 0x32), Color.WHITE);
+        btnConfirmHold.setFont(UIFonts.custom(Font.BOLD, 12));
+        btnConfirmHold.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
+        btnConfirmHold.setAlignmentX(LEFT_ALIGNMENT);
         btnConfirmHold.setEnabled(false);
         btnConfirmHold.addActionListener(e -> confirmActiveHold());
 
-        btnReleaseHold = new ThemedButton("Release Hold", new Color(120, 53, 15), Color.WHITE);
+        btnBook = new ThemedButton("Book Directly", new Color(0x82, 0x74, 0xAB), Color.WHITE);
+        btnBook.setFont(UIFonts.custom(Font.BOLD, 12));
+        btnBook.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
+        btnBook.setAlignmentX(LEFT_ALIGNMENT);
+        btnBook.setEnabled(false);
+        btnBook.addActionListener(e -> performBookSeat());
+
+        btnReleaseHold = new ThemedButton("Release Hold", new Color(0x78, 0x71, 0x8A), Color.WHITE);
+        btnReleaseHold.setFont(UIFonts.custom(Font.BOLD, 11));
+        btnReleaseHold.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        btnReleaseHold.setAlignmentX(LEFT_ALIGNMENT);
         btnReleaseHold.setEnabled(false);
         btnReleaseHold.addActionListener(e -> releaseActiveHold());
 
-        btnCancel = new ThemedButton("Cancel Booking", new Color(198, 40, 40), Color.WHITE);
-        btnCancel.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        btnCancel = new ThemedButton("Cancel My Booking", new Color(0xC6, 0x28, 0x28), Color.WHITE);
+        btnCancel.setFont(UIFonts.custom(Font.BOLD, 11));
+        btnCancel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        btnCancel.setAlignmentX(LEFT_ALIGNMENT);
         btnCancel.setEnabled(false);
         btnCancel.addActionListener(e -> performCancelBooking());
 
-        btnRefresh = new ThemedButton("Refresh", new Color(55, 71, 79), Color.WHITE);
-        btnRefresh.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        btnRefresh = new ThemedButton("Refresh Seats", new Color(0x2B, 0x2A, 0x36), Color.WHITE);
+        btnRefresh.setFont(UIFonts.custom(Font.BOLD, 11));
+        btnRefresh.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        btnRefresh.setAlignmentX(LEFT_ALIGNMENT);
         btnRefresh.addActionListener(e -> requestSeatSnapshot());
 
-        btnPanel.add(btnBook);
-        btnPanel.add(btnHold);
-        btnPanel.add(btnConfirmHold);
-        btnPanel.add(btnReleaseHold);
-        btnPanel.add(btnCancel);
-        btnPanel.add(btnRefresh);
+        summaryCard.add(summaryTitle);
+        summaryCard.add(Box.createVerticalStrut(8));
+        summaryCard.add(lblSelectedSeat);
+        summaryCard.add(Box.createVerticalStrut(6));
+        summaryCard.add(priceBox);
+        summaryCard.add(Box.createVerticalStrut(6));
+        summaryCard.add(holdBox);
+        summaryCard.add(Box.createVerticalStrut(8));
+        summaryCard.add(btnHold);
+        summaryCard.add(Box.createVerticalStrut(4));
+        summaryCard.add(btnConfirmHold);
+        summaryCard.add(Box.createVerticalStrut(4));
+        summaryCard.add(btnBook);
+        summaryCard.add(Box.createVerticalStrut(4));
+        summaryCard.add(btnReleaseHold);
+        summaryCard.add(Box.createVerticalStrut(4));
+        summaryCard.add(btnCancel);
+        summaryCard.add(Box.createVerticalStrut(4));
+        summaryCard.add(btnRefresh);
+        summaryCard.add(Box.createVerticalGlue());
 
-        panel.add(btnPanel, BorderLayout.EAST);
-        return panel;
+        JPanel logContainer = createLogPanel();
+        logContainer.setAlignmentX(LEFT_ALIGNMENT);
+        summaryCard.add(logContainer);
+
+        return summaryCard;
     }
 
     private JPanel createLogPanel() {
-        JPanel panel = new JPanel(new BorderLayout());
-        panel.setBorder(BorderFactory.createTitledBorder("Client Activity & Real-Time Broadcast Log"));
+        RoundedPanel panel = new RoundedPanel(UISpacing.RADIUS_SMALL, UIColors.SOFT_WHITE, UIColors.LIGHT_BORDER, 1, false);
+        panel.setLayout(new BorderLayout());
+        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 75));
+        panel.setPreferredSize(new Dimension(240, 70));
 
-        logArea = new JTextArea(5, 50);
+        logArea = new JTextArea(3, 18);
         logArea.setEditable(false);
-        logArea.setFont(new Font("Consolas", Font.PLAIN, 11));
-        logArea.setBackground(new Color(250, 250, 250));
+        logArea.setFont(new Font("Consolas", Font.PLAIN, 10));
+        logArea.setBackground(UIColors.SOFT_WHITE);
+        logArea.setForeground(UIColors.TEXT_MUTED);
 
         JScrollPane scrollPane = new JScrollPane(logArea);
-        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         panel.add(scrollPane, BorderLayout.CENTER);
 
         appendLog("Session initialized for user " + username + " (" + userId + ")");
@@ -1100,6 +1242,9 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     private void onSeatSelectionChanged(String seatId) {
         if (seatId == null) {
             lblSelectedSeat.setText("Selected Seat: None");
+            if (lblPriceSeat != null) lblPriceSeat.setText("$0.00");
+            if (lblPriceFee != null) lblPriceFee.setText("$0.00");
+            if (lblPriceTotal != null) lblPriceTotal.setText("$0.00");
             btnBook.setEnabled(false);
             btnHold.setEnabled(false);
             btnCancel.setEnabled(false);
@@ -1114,21 +1259,73 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         boolean connected = tcpClient != null && tcpClient.isConnected();
         String statusDesc;
         if (isMine) {
-            statusDesc = "BOOKED BY YOU";
+            statusDesc = "Your Booking";
         } else if (isHeld && seatId.equals(activeHoldSeatId)) {
-            statusDesc = "HELD BY YOU";
+            statusDesc = "Your Hold";
         } else if (isHeld) {
-            statusDesc = "HELD";
+            statusDesc = "Held";
         } else if (isBooked) {
-            statusDesc = "BOOKED (" + (view.bookedBy() != null ? view.bookedBy() : "Other") + ")";
+            statusDesc = "Booked";
         } else {
-            statusDesc = "AVAILABLE";
+            statusDesc = "Available";
         }
 
-        lblSelectedSeat.setText("Selected Seat: " + seatId + " [" + statusDesc + "]");
+        lblSelectedSeat.setText("Seat " + seatId + " • " + statusDesc);
+        if (view != null && view.status() == SeatStatus.AVAILABLE) {
+            if (lblPriceSeat != null) lblPriceSeat.setText("$12.50");
+            if (lblPriceFee != null) lblPriceFee.setText("$1.50");
+            if (lblPriceTotal != null) lblPriceTotal.setText("$14.00");
+        } else {
+            if (lblPriceSeat != null) lblPriceSeat.setText("$0.00");
+            if (lblPriceFee != null) lblPriceFee.setText("$0.00");
+            if (lblPriceTotal != null) lblPriceTotal.setText("$0.00");
+        }
         btnBook.setEnabled(connected && view != null && view.status() == SeatStatus.AVAILABLE);
         btnHold.setEnabled(connected && view != null && view.status() == SeatStatus.AVAILABLE);
         btnCancel.setEnabled(connected && isBooked && (isMine || userBookings.containsKey(seatId)));
+    }
+
+    private void updateSeatMapMovieInfo() {
+        if (lblSeatMapMovieTitle == null) {
+            return;
+        }
+        String title = selectedMovie != null ? selectedMovie.title() : "Grand Cinema (" + showId + ")";
+        String genre = selectedMovie != null ? selectedMovie.genre() : "Cinema Feature";
+        int duration = selectedMovie != null ? selectedMovie.durationMinutes() : 120;
+
+        lblSeatMapMovieTitle.setText("<html><center><b>" + title + "</b></center></html>");
+        lblSeatMapGenre.setText(genre + " • " + duration + " min");
+        if (lblSeatMapPoster != null) {
+            lblSeatMapPoster.setIcon(new ImageIcon(ImageResourceManager.getMoviePoster(title, genre, 130, 160)));
+        }
+    }
+
+    private JLabel createPriceLabel(String label) {
+        JLabel lbl = new JLabel(label);
+        lbl.setFont(UIFonts.CAPTION);
+        lbl.setForeground(UIColors.TEXT_MUTED);
+        return lbl;
+    }
+
+    private JLabel createPriceValue(String value) {
+        JLabel lbl = new JLabel(value, SwingConstants.RIGHT);
+        lbl.setFont(UIFonts.CAPTION);
+        lbl.setForeground(UIColors.TEXT_DARK);
+        return lbl;
+    }
+
+    private JPanel createInfoRow(String label, String value) {
+        JPanel row = new JPanel(new BorderLayout(4, 0));
+        row.setOpaque(false);
+        JLabel lblKey = new JLabel(label);
+        lblKey.setFont(UIFonts.CAPTION);
+        lblKey.setForeground(UIColors.TEXT_MUTED);
+        JLabel lblVal = new JLabel(value, SwingConstants.RIGHT);
+        lblVal.setFont(UIFonts.BODY_BOLD);
+        lblVal.setForeground(UIColors.TEXT_DARK);
+        row.add(lblKey, BorderLayout.WEST);
+        row.add(lblVal, BorderLayout.EAST);
+        return row;
     }
 
     // =========================================================================

@@ -3,82 +3,87 @@ package com.seatsync.ui;
 import com.seatsync.common.model.ProtocolConstants;
 import com.seatsync.common.model.SeatStatus;
 import com.seatsync.common.model.SeatView;
+import com.seatsync.ui.theme.SeatSyncTheme;
+import com.seatsync.ui.theme.UIColors;
+import com.seatsync.ui.theme.UIFonts;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Cursor;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.FontMetrics;
+import java.awt.GradientPaint;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.Insets;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.geom.QuadCurve2D;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
 /**
  * Interactive Swing presentation component displaying the 40-seat cinema grid (A1-E8).
- * Provides visual cues for available, booked, and user-owned seats, and handles seat selection.
+ * Features a modern curved cinema screen indicator, FilmTIX-style color palette,
+ * responsive hover elevation, and real-time seat status synchronization.
  * <p>
  * Thread-safe: UI state mutations are guaranteed to execute on the Swing Event Dispatch Thread (EDT).
- * <p>
- * Owned by Member 05 (Desktop UI & Presentation).
  */
 @SuppressWarnings({"serial", "this-escape"})
 public final class SeatGridPanel extends JPanel {
 
     private static final long serialVersionUID = 1L;
 
-    // Visual Palette
-    private static final Color COLOR_AVAILABLE = new Color(46, 125, 50);     // Forest Green
-    private static final Color COLOR_BOOKED = new Color(198, 40, 40);        // Deep Red
-    private static final Color COLOR_HELD = new Color(239, 108, 0);            // Amber
-    private static final Color COLOR_MY_BOOKING = new Color(25, 118, 210);    // Royal Blue
-    private static final Color COLOR_SELECTED = new Color(255, 179, 0);      // Amber Gold
-    private static final Color COLOR_SCREEN_BG = new Color(55, 71, 79);      // Slate Charcoal
-    private static final Font FONT_SEAT = new Font("Segoe UI", Font.BOLD, 12);
-    private static final Font FONT_SCREEN = new Font("Segoe UI", Font.BOLD, 14);
+    // FilmTIX Modern Cinema Palette
+    public static final Color COLOR_AVAILABLE = new Color(0x2B, 0x2A, 0x36);   // Cinema Slate Charcoal
+    public static final Color COLOR_SELECTED = new Color(0x82, 0x74, 0xAB);    // FilmTIX Lavender / Purple Accent
+    public static final Color COLOR_BOOKED = new Color(0xDD, 0xDB, 0xE5);      // Muted Light Gray
+    public static final Color COLOR_MY_BOOKING = new Color(0x43, 0x79, 0xB8);  // Cinema Royal Blue
+    public static final Color COLOR_HELD = new Color(0xE6, 0xA2, 0x3C);        // Amber Gold
+    public static final Color COLOR_TEXT_BOOKED = new Color(0x4A, 0x45, 0x59); // Dark slate for booked seats
 
-    private final transient Map<String, JButton> seatButtons = new LinkedHashMap<>(40);
+    private static final Font FONT_SEAT = UIFonts.custom(Font.BOLD, 12);
+
+    private final transient Map<String, SeatButton> seatButtons = new LinkedHashMap<>(40);
     private final transient Map<String, SeatView> seatViews = new LinkedHashMap<>(40);
     private final transient List<Consumer<String>> selectionListeners = new CopyOnWriteArrayList<>();
 
     private String currentUserId;
     private String selectedSeatId;
 
-    @SuppressWarnings("this-escape")
     public SeatGridPanel() {
-        setLayout(new BorderLayout(10, 15));
-        setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+        setLayout(new BorderLayout(10, 16));
+        setOpaque(false);
+        setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
         initComponentLayout();
     }
 
     private void initComponentLayout() {
-        // 1. Stage / Screen Indicator at the top
-        JPanel screenPanel = new JPanel(new BorderLayout());
-        screenPanel.setBackground(COLOR_SCREEN_BG);
-        screenPanel.setPreferredSize(new Dimension(500, 32));
-        screenPanel.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY, 1));
-
-        JLabel screenLabel = new JLabel("--- CINEMA SCREEN / STAGE ---", SwingConstants.CENTER);
-        screenLabel.setForeground(Color.WHITE);
-        screenLabel.setFont(FONT_SCREEN);
-        screenPanel.add(screenLabel, BorderLayout.CENTER);
+        // 1. Sleek Curved Cinema Screen Indicator at the top
+        CurvedScreenIndicator screenPanel = new CurvedScreenIndicator();
         add(screenPanel, BorderLayout.NORTH);
 
         // 2. 5x8 Grid of Seats (A1 to E8)
-        JPanel grid = new JPanel(new GridLayout(5, 8, 8, 8));
+        JPanel grid = new JPanel(new GridLayout(5, 8, 10, 10));
         grid.setOpaque(false);
 
         for (String seatId : ProtocolConstants.VALID_SEAT_IDS) {
-            JButton btn = createSeatButton(seatId);
+            SeatButton btn = new SeatButton(seatId);
+            btn.addActionListener(e -> selectSeat(seatId));
             seatButtons.put(seatId, btn);
             seatViews.put(seatId, SeatView.available(seatId));
             grid.add(btn);
@@ -88,58 +93,54 @@ public final class SeatGridPanel extends JPanel {
         // 3. Legend Panel at bottom
         JPanel legendPanel = createLegendPanel();
         add(legendPanel, BorderLayout.SOUTH);
-    }
 
-    private JButton createSeatButton(String seatId) {
-        JButton btn = new JButton();
-        btn.setUI(new javax.swing.plaf.basic.BasicButtonUI());
-        btn.setFont(FONT_SEAT);
-        btn.setFocusPainted(false);
-        btn.setOpaque(true);
-        btn.setContentAreaFilled(true);
-        btn.setMargin(new Insets(2, 2, 2, 2));
-        btn.setPreferredSize(new Dimension(60, 48));
-        btn.setBackground(COLOR_AVAILABLE);
-        btn.setForeground(Color.WHITE);
-        btn.setText("<html><center><b>" + seatId + "</b><br><small style='font-size:9px'>Open</small></center></html>");
-        btn.setToolTipText("Seat " + seatId + " - Available");
-
-        btn.addActionListener(e -> selectSeat(seatId));
-        return btn;
+        refreshAllSeatStyles();
     }
 
     private JPanel createLegendPanel() {
-        JPanel legend = new JPanel(new GridLayout(1, 4, 10, 0));
+        JPanel legend = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 2));
         legend.setOpaque(false);
-        legend.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
+        legend.setBorder(BorderFactory.createEmptyBorder(8, 0, 2, 0));
 
-        legend.add(createLegendBadge("Available", COLOR_AVAILABLE, Color.WHITE));
-        legend.add(createLegendBadge("My Booking", COLOR_MY_BOOKING, Color.WHITE));
-        legend.add(createLegendBadge("Booked", COLOR_BOOKED, Color.WHITE));
-        legend.add(createLegendBadge("Selected", COLOR_SELECTED, Color.BLACK));
+        legend.add(createLegendBadge("Available", COLOR_AVAILABLE));
+        legend.add(createLegendBadge("Selected", COLOR_SELECTED));
+        legend.add(createLegendBadge("Held", COLOR_HELD));
+        legend.add(createLegendBadge("Booked", COLOR_BOOKED));
+        legend.add(createLegendBadge("My Booking", COLOR_MY_BOOKING));
         return legend;
     }
 
-    private JPanel createLegendBadge(String text, Color bg, Color fg) {
-        JPanel panel = new JPanel(new BorderLayout());
-        String hexFg = (fg == Color.BLACK) ? "#000000" : "#ffffff";
-        JLabel badge = new JLabel("<html><center><font color='" + hexFg + "'><b>" + text + "</b></font></center></html>", SwingConstants.CENTER);
-        badge.setOpaque(true);
-        badge.setBackground(bg);
-        badge.setForeground(fg);
-        badge.setFont(new Font("Segoe UI", Font.BOLD, 11));
-        badge.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(bg.darker(), 1),
-            BorderFactory.createEmptyBorder(6, 10, 6, 10)
-        ));
-        panel.add(badge, BorderLayout.CENTER);
+    private JPanel createLegendBadge(String text, Color bg) {
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.CENTER, 5, 0));
+        panel.setOpaque(false);
+
+        JPanel swatch = new JPanel() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g.create();
+                SeatSyncTheme.enableAntiAliasing(g2);
+                g2.setColor(bg);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 4, 4);
+                g2.setColor(bg.darker());
+                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 4, 4);
+                g2.dispose();
+            }
+        };
+        swatch.setPreferredSize(new Dimension(14, 14));
+        swatch.setOpaque(false);
+
+        JLabel label = new JLabel(text);
+        label.setFont(UIFonts.CAPTION);
+        label.setForeground(UIColors.TEXT_DARK);
+
+        panel.add(swatch);
+        panel.add(label);
         return panel;
     }
 
     /**
      * Sets the authenticated user ID so personal bookings can be highlighted.
-     *
-     * @param userId Authenticated user identifier (e.g. "USR-101")
      */
     public void setCurrentUserId(String userId) {
         this.currentUserId = userId;
@@ -148,8 +149,6 @@ public final class SeatGridPanel extends JPanel {
 
     /**
      * Selects a seat and alerts registered selection listeners.
-     *
-     * @param seatId Identifier of the chosen seat
      */
     public void selectSeat(String seatId) {
         this.selectedSeatId = seatId;
@@ -172,8 +171,6 @@ public final class SeatGridPanel extends JPanel {
 
     /**
      * Updates all seat states from a server snapshot. Safe to call from any thread.
-     *
-     * @param seats List of updated seat views
      */
     public void updateSeats(List<SeatView> seats) {
         if (seats == null) {
@@ -193,8 +190,6 @@ public final class SeatGridPanel extends JPanel {
 
     /**
      * Updates an individual seat's state. Safe to call from any thread.
-     *
-     * @param seat Updated seat view
      */
     public void updateSingleSeat(SeatView seat) {
         if (seat == null) {
@@ -204,52 +199,59 @@ public final class SeatGridPanel extends JPanel {
     }
 
     private void refreshAllSeatStyles() {
-        for (Map.Entry<String, JButton> entry : seatButtons.entrySet()) {
+        for (Map.Entry<String, SeatButton> entry : seatButtons.entrySet()) {
             String seatId = entry.getKey();
-            JButton btn = entry.getValue();
+            SeatButton btn = entry.getValue();
             SeatView view = seatViews.get(seatId);
 
-            boolean isSelected = seatId.equals(selectedSeatId);
+            boolean isSelected = Objects.equals(seatId, selectedSeatId);
             boolean isBooked = view != null && view.status() == SeatStatus.BOOKED;
             boolean isHeld = view != null && view.status() == SeatStatus.HELD;
             boolean isMine = isBooked && currentUserId != null && currentUserId.equals(view.bookedBy());
 
-            btn.setUI(new javax.swing.plaf.basic.BasicButtonUI());
-            btn.setOpaque(true);
-            btn.setContentAreaFilled(true);
+            Color fill;
+            Color stroke;
+            Color text;
+            String statusText;
 
             if (isSelected) {
-                btn.setText("<html><center><font color='#000000'><b>" + seatId + "</b><br><small style='font-size:9px'>Selected</small></font></center></html>");
-                btn.setBackground(COLOR_SELECTED);
-                btn.setForeground(Color.BLACK);
-                btn.setBorder(BorderFactory.createLineBorder(Color.BLACK, 2));
+                fill = COLOR_SELECTED;
+                stroke = COLOR_SELECTED.darker();
+                text = Color.WHITE;
+                statusText = "Selected";
+                btn.setText("<html><center><b>" + seatId + "</b><br><small style='font-size:9px'>Selected</small></center></html>");
             } else if (isMine) {
-                btn.setText("<html><center><font color='#ffffff'><b>" + seatId + "</b><br><small style='font-size:9px'>Mine</small></font></center></html>");
-                btn.setBackground(COLOR_MY_BOOKING);
-                btn.setForeground(Color.WHITE);
-                btn.setBorder(BorderFactory.createLineBorder(new Color(13, 71, 161), 1));
+                fill = COLOR_MY_BOOKING;
+                stroke = COLOR_MY_BOOKING.darker();
+                text = Color.WHITE;
+                statusText = "Mine";
+                btn.setText("<html><center><b>" + seatId + "</b><br><small style='font-size:9px'>Mine</small></center></html>");
             } else if (isHeld) {
-                btn.setText("<html><center><font color='#ffffff'><b>" + seatId + "</b><br><small style='font-size:9px'>Held</small></font></center></html>");
-                btn.setBackground(COLOR_HELD);
-                btn.setForeground(Color.WHITE);
-                btn.setBorder(BorderFactory.createLineBorder(new Color(230, 81, 0), 1));
+                fill = COLOR_HELD;
+                stroke = COLOR_HELD.darker();
+                text = Color.WHITE;
+                statusText = "Held";
+                btn.setText("<html><center><b>" + seatId + "</b><br><small style='font-size:9px'>Held</small></center></html>");
             } else if (isBooked) {
-                btn.setText("<html><center><font color='#ffffff'><b>" + seatId + "</b><br><small style='font-size:9px'>Booked</small></font></center></html>");
-                btn.setBackground(COLOR_BOOKED);
-                btn.setForeground(Color.WHITE);
-                btn.setBorder(BorderFactory.createLineBorder(new Color(183, 28, 28), 1));
+                fill = COLOR_BOOKED;
+                stroke = new Color(0xC0, 0xBE, 0xCC);
+                text = COLOR_TEXT_BOOKED;
+                statusText = "Booked";
+                btn.setText("<html><center><font color='#4a4559'><b>" + seatId + "</b><br><small style='font-size:9px'>Booked</small></font></center></html>");
             } else {
-                btn.setText("<html><center><font color='#ffffff'><b>" + seatId + "</b><br><small style='font-size:9px'>Open</small></font></center></html>");
-                btn.setBackground(COLOR_AVAILABLE);
-                btn.setForeground(Color.WHITE);
-                btn.setBorder(BorderFactory.createLineBorder(new Color(27, 94, 32), 1));
+                fill = COLOR_AVAILABLE;
+                stroke = COLOR_AVAILABLE.darker();
+                text = Color.WHITE;
+                statusText = "Available";
+                btn.setText("<html><center><b>" + seatId + "</b><br><small style='font-size:9px'>Open</small></center></html>");
             }
 
-            // Tooltip and accessibility text
+            btn.setBackground(fill);
+            btn.setForeground(text);
+            btn.setSeatStyle(fill, stroke, text, statusText);
+
             String ownerText = isMine ? " (You)" : (isBooked && view.bookedBy() != null ? " (" + view.bookedBy() + ")" : "");
-            String statusText = isBooked ? "Booked" + ownerText : (isHeld ? "Held" : "Available");
-            btn.setToolTipText("Seat " + seatId + " - " + statusText);
-            btn.repaint();
+            btn.setToolTipText("Seat " + seatId + " - " + statusText + ownerText);
         }
     }
 
@@ -273,5 +275,142 @@ public final class SeatGridPanel extends JPanel {
 
     public void removeSelectionListener(Consumer<String> listener) {
         selectionListeners.remove(listener);
+    }
+
+    /**
+     * Curved cinema screen indicator with luminous lavender arc and ambient glow.
+     */
+    private static class CurvedScreenIndicator extends JPanel {
+        CurvedScreenIndicator() {
+            setPreferredSize(new Dimension(500, 48));
+            setOpaque(false);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2 = (Graphics2D) g.create();
+            SeatSyncTheme.enableAntiAliasing(g2);
+            int w = getWidth();
+
+            int arcY = 8;
+            int arcH = 16;
+            QuadCurve2D arc = new QuadCurve2D.Float(24, arcY + arcH, w / 2f, arcY, w - 24, arcY + arcH);
+
+            // Ambient glow
+            g2.setStroke(new BasicStroke(6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g2.setColor(new Color(0x82, 0x74, 0xAB, 50));
+            g2.draw(arc);
+
+            // Luminous curved screen line
+            g2.setStroke(new BasicStroke(2.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            GradientPaint gp = new GradientPaint(24, 0, UIColors.MUTED_PURPLE, w - 24, 0, UIColors.LAVENDER_PRIMARY);
+            g2.setPaint(gp);
+            g2.draw(arc);
+
+            // Screen label
+            g2.setFont(UIFonts.CAPTION);
+            g2.setColor(UIColors.TEXT_MUTED);
+            String label = "CINEMA SCREEN THIS WAY";
+            FontMetrics fm = g2.getFontMetrics();
+            int tx = (w - fm.stringWidth(label)) / 2;
+            g2.drawString(label, tx, arcY + arcH + 16);
+
+            g2.dispose();
+        }
+    }
+
+    /**
+     * Custom antialiased cinema seat button rendering rounded backrest, cushion, and hover dynamics.
+     */
+    private static class SeatButton extends JButton {
+        private final String seatId;
+        private Color fillColor = COLOR_AVAILABLE;
+        private Color strokeColor = COLOR_AVAILABLE.darker();
+        private Color labelColor = Color.WHITE;
+        private String statusLabel = "Available";
+        private boolean isHovered;
+
+        SeatButton(String seatId) {
+            this.seatId = seatId;
+            setUI(new javax.swing.plaf.basic.BasicButtonUI());
+            setFont(FONT_SEAT);
+            setFocusPainted(false);
+            setContentAreaFilled(false);
+            setOpaque(false);
+            setBorderPainted(false);
+            setMargin(new Insets(2, 2, 2, 2));
+            setPreferredSize(new Dimension(56, 46));
+            setCursor(new Cursor(Cursor.HAND_CURSOR));
+
+            addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseEntered(MouseEvent e) {
+                    if (isEnabled()) {
+                        isHovered = true;
+                        repaint();
+                    }
+                }
+
+                @Override
+                public void mouseExited(MouseEvent e) {
+                    isHovered = false;
+                    repaint();
+                }
+            });
+        }
+
+        void setSeatStyle(Color fill, Color stroke, Color text, String status) {
+            this.fillColor = fill;
+            this.strokeColor = stroke;
+            this.labelColor = text;
+            this.statusLabel = status;
+            repaint();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            SeatSyncTheme.enableAntiAliasing(g2);
+            int w = getWidth();
+            int h = getHeight();
+
+            Color base = fillColor;
+            if (isHovered && isEnabled()) {
+                base = new Color(
+                    Math.min(255, base.getRed() + 25),
+                    Math.min(255, base.getGreen() + 25),
+                    Math.min(255, base.getBlue() + 30)
+                );
+            }
+
+            // Draw cinema seat body
+            int arc = 8;
+            g2.setColor(base);
+            g2.fillRoundRect(2, 2, w - 4, h - 4, arc, arc);
+
+            // Border
+            g2.setColor(isHovered ? UIColors.LAVENDER_PRIMARY : strokeColor);
+            g2.setStroke(new BasicStroke(isHovered ? 1.5f : 1f));
+            g2.drawRoundRect(2, 2, w - 5, h - 5, arc, arc);
+
+            // Headrest subtle highlight
+            g2.setColor(new Color(255, 255, 255, 25));
+            g2.drawLine(6, 6, w - 7, 6);
+
+            // Seat ID text
+            g2.setFont(FONT_SEAT);
+            g2.setColor(labelColor);
+            FontMetrics fm = g2.getFontMetrics();
+            int tx = (w - fm.stringWidth(seatId)) / 2;
+            int ty = (h - fm.getHeight()) / 2 + fm.getAscent() - 3;
+            g2.drawString(seatId, tx, ty);
+
+            // Bottom cushion contour
+            g2.setColor(new Color(0, 0, 0, 25));
+            g2.fillRoundRect(6, h - 8, w - 12, 3, 2, 2);
+
+            g2.dispose();
+        }
     }
 }

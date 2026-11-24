@@ -47,7 +47,7 @@ public class SectionHeader extends JPanel {
             lblSubtitle = null;
         }
 
-        add(textContainer, BorderLayout.WEST);
+        add(textContainer, BorderLayout.CENTER);
 
         actionContainer = new JPanel(new BorderLayout());
         actionContainer.setOpaque(false);

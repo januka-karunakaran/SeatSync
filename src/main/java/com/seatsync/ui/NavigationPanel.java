@@ -20,7 +20,8 @@ import java.util.function.Consumer;
 
 /**
  * Modern side navigation for the SeatSync customer and administration workspaces.
- * Features branded cinema header, distinct section highlights, and responsive navigation callbacks.
+ * Features branded cinema header, distinct section highlights, top-aligned menu layout,
+ * and responsive navigation callbacks.
  */
 @SuppressWarnings({"serial", "this-escape"})
 public final class NavigationPanel extends JPanel {
@@ -37,28 +38,43 @@ public final class NavigationPanel extends JPanel {
         this.onNavigate = Objects.requireNonNull(onNavigate, "onNavigate");
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         setBackground(UIColors.DEEP_CHARCOAL);
-        setBorder(BorderFactory.createEmptyBorder(18, 12, 18, 12));
-        setPreferredSize(new Dimension(190, 0));
+        setBorder(BorderFactory.createEmptyBorder(14, 14, 16, 14));
+        setPreferredSize(new Dimension(215, 0));
 
-        // Brand Header
-        JPanel brandPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        // Top gap before brand header
+        add(Box.createVerticalStrut(6));
+
+        // Brand Header (Logo + Title)
+        JPanel brandPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
         brandPanel.setOpaque(false);
         brandPanel.setAlignmentX(LEFT_ALIGNMENT);
-        JLabel logoLabel = new JLabel(new ImageIcon(ImageResourceManager.getSeatSyncLogo(28, 28)));
+        brandPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 38));
+        brandPanel.setPreferredSize(new Dimension(185, 38));
+
+        JLabel logoLabel = new JLabel(new ImageIcon(ImageResourceManager.getSeatSyncLogo(30, 30)));
         JLabel brandName = new JLabel("SeatSync");
-        brandName.setFont(UIFonts.TITLE_SMALL);
+        brandName.setFont(UIFonts.TITLE_MEDIUM);
         brandName.setForeground(UIColors.PURE_WHITE);
         brandPanel.add(logoLabel);
         brandPanel.add(brandName);
 
         add(brandPanel);
-        add(Box.createVerticalStrut(20));
+        add(Box.createVerticalStrut(22)); // Clean gap between logo and navigation items
+
+        // Subtle section header
+        JLabel navHeader = new JLabel("MENU");
+        navHeader.setFont(UIFonts.custom(java.awt.Font.BOLD, 10));
+        navHeader.setForeground(new Color(0x8A, 0x88, 0x96));
+        navHeader.setAlignmentX(LEFT_ALIGNMENT);
+        navHeader.setBorder(BorderFactory.createEmptyBorder(0, 10, 8, 0));
+        add(navHeader);
 
         for (String page : PAGES) {
             ThemedButton button = new ThemedButton(page, NORMAL, Color.WHITE);
-            button.setFont(UIFonts.BODY);
+            button.setFont(UIFonts.BODY_BOLD);
             button.setAlignmentX(LEFT_ALIGNMENT);
             button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
+            button.setPreferredSize(new Dimension(185, 40));
             button.setHorizontalAlignment(ThemedButton.LEFT);
             button.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(NORMAL.darker(), 1),
@@ -70,6 +86,7 @@ public final class NavigationPanel extends JPanel {
             add(Box.createVerticalStrut(6));
         }
 
+        // Vertical glue at the bottom pushes all navigation buttons to the top
         add(Box.createVerticalGlue());
         updateSelection();
     }

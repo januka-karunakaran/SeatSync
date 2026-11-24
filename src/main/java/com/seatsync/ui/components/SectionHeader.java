@@ -35,6 +35,7 @@ public class SectionHeader extends JPanel {
         lblTitle = new JLabel(title);
         lblTitle.setFont(UIFonts.TITLE_MEDIUM);
         lblTitle.setForeground(UIColors.TEXT_DARK);
+        lblTitle.setBorder(javax.swing.BorderFactory.createEmptyBorder(0, 0, 0, 12));
         textContainer.add(lblTitle);
 
         if (subtitle != null && !subtitle.isBlank()) {
@@ -42,6 +43,7 @@ public class SectionHeader extends JPanel {
             lblSubtitle = new JLabel(subtitle);
             lblSubtitle.setFont(UIFonts.BODY_SMALL);
             lblSubtitle.setForeground(UIColors.TEXT_SECONDARY);
+            lblSubtitle.setBorder(javax.swing.BorderFactory.createEmptyBorder(0, 0, 0, 12));
             textContainer.add(lblSubtitle);
         } else {
             lblSubtitle = null;

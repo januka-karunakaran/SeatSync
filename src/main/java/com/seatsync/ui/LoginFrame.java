@@ -245,6 +245,7 @@ public final class LoginFrame extends JFrame {
         chkTls.setOpaque(false);
         chkTls.setFont(UIFonts.BODY_SMALL);
         chkTls.setForeground(UIColors.TEXT_MUTED);
+        chkTls.setToolTipText("Enable TLS 1.3 encryption (requires SEATSYNC_TLS_TRUSTSTORE environment variable)");
         chkTls.addActionListener(event -> updateDiscoveredTransport());
         connectionOptions.add(chkTls, BorderLayout.CENTER);
         fieldsPanel.add(connectionOptions, gbc);
@@ -454,7 +455,12 @@ public final class LoginFrame extends JFrame {
                     client.disconnect();
                 }
                 SwingUtilities.invokeLater(() -> {
-                    setStatus((useTls ? "Secure connection/login failed: " : "Connection/login failed: ") + e.getMessage(), UIColors.ERROR_RED);
+                    String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                    if (useTls && msg.contains("SEATSYNC_TLS_TRUSTSTORE")) {
+                        setStatus("TLS truststore missing. Uncheck 'Require TLS 1.3' for standard local connection.", UIColors.ERROR_RED);
+                    } else {
+                        setStatus((useTls ? "Secure connection/login failed: " : "Connection/login failed: ") + msg, UIColors.ERROR_RED);
+                    }
                     setFormEnabled(true);
                 });
             }

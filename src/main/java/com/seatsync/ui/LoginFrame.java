@@ -125,6 +125,7 @@ public final class LoginFrame extends JFrame {
         // Brand Logo & Name
         JPanel brandRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
         brandRow.setOpaque(false);
+        brandRow.setAlignmentX(LEFT_ALIGNMENT);
         JLabel logoLabel = new JLabel(new ImageIcon(ImageResourceManager.getSeatSyncLogo(38, 38)));
         JLabel brandLabel = new JLabel("SeatSync");
         brandLabel.setFont(UIFonts.TITLE_LARGE);
@@ -136,18 +137,22 @@ public final class LoginFrame extends JFrame {
         JLabel heroHeadline = new JLabel("<html>Your Cinema Experience<br>Starts Here</html>");
         heroHeadline.setFont(UIFonts.HERO_TITLE);
         heroHeadline.setForeground(UIColors.PURE_WHITE);
+        heroHeadline.setAlignmentX(LEFT_ALIGNMENT);
 
         JLabel heroSubtitle = new JLabel(
             "<html>Real-time seat reservations, synchronized across clients with microsecond precision. Select your favorite show and book instantly.</html>"
         );
         heroSubtitle.setFont(UIFonts.BODY);
         heroSubtitle.setForeground(new Color(0xD8, 0xD5, 0xE3));
-        heroSubtitle.setMaximumSize(new Dimension(380, 70));
+        heroSubtitle.setAlignmentX(LEFT_ALIGNMENT);
+        heroSubtitle.setPreferredSize(new Dimension(400, 60));
+        heroSubtitle.setMaximumSize(new Dimension(420, 70));
 
         // Feature Highlights
         JPanel highlightsPanel = new JPanel();
         highlightsPanel.setLayout(new BoxLayout(highlightsPanel, BoxLayout.Y_AXIS));
         highlightsPanel.setOpaque(false);
+        highlightsPanel.setAlignmentX(LEFT_ALIGNMENT);
         highlightsPanel.add(createFeatureItem("Non-blocking Java NIO 21 Server (16 KiB frame ceiling)"));
         highlightsPanel.add(Box.createVerticalStrut(10));
         highlightsPanel.add(createFeatureItem("Zero-configuration UDP LAN Discovery Probe"));
@@ -155,11 +160,11 @@ public final class LoginFrame extends JFrame {
         highlightsPanel.add(createFeatureItem("End-to-End TLS 1.3 Transport Security"));
 
         heroContent.add(brandRow);
-        heroContent.add(Box.createVerticalStrut(35));
+        heroContent.add(Box.createVerticalStrut(28));
         heroContent.add(heroHeadline);
-        heroContent.add(Box.createVerticalStrut(16));
+        heroContent.add(Box.createVerticalStrut(14));
         heroContent.add(heroSubtitle);
-        heroContent.add(Box.createVerticalStrut(35));
+        heroContent.add(Box.createVerticalStrut(30));
         heroContent.add(highlightsPanel);
         heroContent.add(Box.createVerticalGlue());
 
@@ -176,11 +181,11 @@ public final class LoginFrame extends JFrame {
         // -------------------------------------------------------------
         JPanel rightContainer = new JPanel(new BorderLayout());
         rightContainer.setBackground(UIColors.SOFT_WHITE);
-        rightContainer.setBorder(BorderFactory.createEmptyBorder(36, 40, 36, 40));
+        rightContainer.setBorder(BorderFactory.createEmptyBorder(26, 36, 26, 36));
 
         JPanel formCard = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.PURE_WHITE, UIColors.LIGHT_BORDER, 1, true);
-        formCard.setLayout(new BorderLayout(16, 16));
-        formCard.setBorder(BorderFactory.createEmptyBorder(28, 28, 24, 28));
+        formCard.setLayout(new BorderLayout(14, 14));
+        formCard.setBorder(BorderFactory.createEmptyBorder(22, 24, 18, 24));
 
         // Form Header
         JPanel cardHeader = new JPanel();
@@ -296,6 +301,7 @@ public final class LoginFrame extends JFrame {
         lblStatus.setFont(UIFonts.CAPTION);
         lblStatus.setForeground(UIColors.TEXT_SECONDARY);
         lblStatus.setAlignmentX(CENTER_ALIGNMENT);
+        lblStatus.setPreferredSize(new Dimension(360, 20));
 
         footerPanel.add(btnLogin);
         footerPanel.add(Box.createVerticalStrut(10));
@@ -321,15 +327,28 @@ public final class LoginFrame extends JFrame {
     }
 
     private JPanel createFeatureItem(String text) {
-        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
         row.setOpaque(false);
-        JLabel check = new JLabel("✓");
-        check.setFont(UIFonts.BODY_BOLD);
-        check.setForeground(UIColors.LAVENDER_PRIMARY);
+        row.setAlignmentX(LEFT_ALIGNMENT);
+
+        JPanel dot = new JPanel() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g.create();
+                SeatSyncTheme.enableAntiAliasing(g2);
+                g2.setColor(UIColors.LAVENDER_PRIMARY);
+                g2.fillOval(2, 5, 7, 7);
+                g2.dispose();
+            }
+        };
+        dot.setOpaque(false);
+        dot.setPreferredSize(new Dimension(14, 16));
+
         JLabel desc = new JLabel(text);
         desc.setFont(UIFonts.BODY_SMALL);
         desc.setForeground(new Color(0xD8, 0xD5, 0xE3));
-        row.add(check);
+        row.add(dot);
         row.add(desc);
         return row;
     }

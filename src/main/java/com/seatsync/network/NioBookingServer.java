@@ -124,12 +124,15 @@ public class NioBookingServer {
         selectorThread.start();
 
         if (config.udpDiscoveryEnabled()) {
+            boolean tlsRequired = config.tlsMode() == TlsConfigMode.REQUIRED;
+            int tlsPort = config.tlsMode() == TlsConfigMode.DISABLED ? 0 : getTlsPort();
+            int advertisedTcpPort = tlsRequired ? tlsPort : getPort();
             discoveryListener = new LanDiscoveryListener(
                 config.udpPort(),
                 config.manualLanIp(),
-                getPort(),
-                false,
-                0,
+                advertisedTcpPort,
+                tlsRequired,
+                tlsPort,
                 "seatsync-v2",
                 null
             );

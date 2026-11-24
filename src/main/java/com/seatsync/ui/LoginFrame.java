@@ -6,11 +6,15 @@ import com.seatsync.common.protocol.ReplyMessage;
 import com.seatsync.common.protocol.reply.LoginFailedReply;
 import com.seatsync.common.protocol.reply.LoginOkReply;
 import com.seatsync.common.protocol.request.LoginRequest;
+import com.seatsync.network.discovery.DiscoveryConstants;
+import com.seatsync.network.discovery.DiscoveryResponse;
+import com.seatsync.network.discovery.UdpDiscoveryProbe;
+import com.seatsync.security.tls.TlsContextFactory;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
-import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -28,6 +32,8 @@ import java.awt.Insets;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
+import java.security.GeneralSecurityException;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -37,7 +43,7 @@ import java.util.concurrent.TimeUnit;
  * Handles network connection attempts, validates host/port input, initiates
  * the TCP handshake, and submits the LOGIN protocol message.
  * <p>
- * Owned by Member 01 (TCP Socket Programming & Desktop Client).
+ * Owned by Member 05 (Desktop UI & Presentation).
  */
 @SuppressWarnings({"serial", "this-escape"})
 public final class LoginFrame extends JFrame {
@@ -49,7 +55,13 @@ public final class LoginFrame extends JFrame {
     private final transient JTextField txtUsername;
     private final transient JPasswordField txtPassword;
     private final transient ThemedButton btnLogin;
+    private final transient ThemedButton btnDiscover;
+    private final transient JCheckBox chkTls;
     private final transient JLabel lblStatus;
+    private boolean discoveryRequiresTls;
+    private String discoveredHost;
+    private int discoveredTcpPort;
+    private int discoveredTlsPort;
 
     /**
      * Constructs the LoginFrame with default connection parameters.
@@ -62,8 +74,8 @@ public final class LoginFrame extends JFrame {
         super("SeatSync - Cinema Ticket Booking Login");
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(460, 420);
-        setMinimumSize(new Dimension(420, 380));
+        setSize(500, 500);
+        setMinimumSize(new Dimension(450, 450));
         setLocationRelativeTo(null);
         setResizable(false);
 
@@ -125,9 +137,26 @@ public final class LoginFrame extends JFrame {
         txtPort = new JTextField(String.valueOf(defaultPort > 0 ? defaultPort : ProtocolConstants.DEFAULT_PORT), 15);
         formPanel.add(txtPort, gbc);
 
-        // Username
         gbc.gridx = 0;
         gbc.gridy = 2;
+        gbc.weightx = 0.3;
+        formPanel.add(new JLabel("Connection:"), gbc);
+        JPanel connectionOptions = new JPanel(new BorderLayout(6, 0));
+        connectionOptions.setOpaque(false);
+        btnDiscover = new ThemedButton("Discover Server", new Color(55, 71, 79), Color.WHITE);
+        btnDiscover.addActionListener(e -> discoverServers());
+        connectionOptions.add(btnDiscover, BorderLayout.WEST);
+        chkTls = new JCheckBox("Require TLS 1.3");
+        chkTls.setOpaque(false);
+        chkTls.addActionListener(event -> updateDiscoveredTransport());
+        connectionOptions.add(chkTls, BorderLayout.CENTER);
+        gbc.gridx = 1;
+        gbc.weightx = 0.7;
+        formPanel.add(connectionOptions, gbc);
+
+        // Username
+        gbc.gridx = 0;
+        gbc.gridy = 3;
         gbc.weightx = 0.3;
         formPanel.add(new JLabel("Username:"), gbc);
 
@@ -138,13 +167,13 @@ public final class LoginFrame extends JFrame {
 
         // Password
         gbc.gridx = 0;
-        gbc.gridy = 3;
+        gbc.gridy = 4;
         gbc.weightx = 0.3;
         formPanel.add(new JLabel("Password:"), gbc);
 
         gbc.gridx = 1;
         gbc.weightx = 0.7;
-        txtPassword = new JPasswordField("password123", 15);
+        txtPassword = new JPasswordField("", 15);
         formPanel.add(txtPassword, gbc);
 
         mainPanel.add(formPanel, BorderLayout.CENTER);
@@ -213,52 +242,53 @@ public final class LoginFrame extends JFrame {
             return;
         }
 
+        if (discoveryRequiresTls && !chkTls.isSelected()) {
+            setStatus("This discovered server requires TLS 1.3. Plaintext connection is disabled.", Color.RED);
+            return;
+        }
+
         setStatus("Connecting to " + host + ":" + port + "...", new Color(21, 101, 192));
         setFormEnabled(false);
 
-        // Run networking on background thread to keep Swing UI responsive
+        boolean useTls = chkTls.isSelected();
         Thread networkThread = new Thread(() -> {
-            TcpClient client = new TcpClient(host, port);
+            TcpClient client = null;
             try {
+                var tlsContext = useTls ? TlsContextFactory.clientFromEnvironment(System.getenv()) : null;
+                client = new TcpClient(host, port, null, tlsContext);
                 client.connect(3000);
-            } catch (IOException e) {
-                SwingUtilities.invokeLater(() -> {
-                    setStatus("Connection refused: " + e.getMessage(), Color.RED);
-                    setFormEnabled(true);
-                });
-                return;
-            }
-
-            try {
-                LoginRequest request = new LoginRequest(client.nextRequestId(), username, password);
-                CompletableFuture<ReplyMessage> future = client.sendRequest(request);
+                TcpClient activeClient = client;
+                LoginRequest request = new LoginRequest(activeClient.nextRequestId(), username, password);
+                CompletableFuture<ReplyMessage> future = activeClient.sendRequest(request);
 
                 ReplyMessage reply = future.get(5, TimeUnit.SECONDS);
                 if (reply instanceof LoginOkReply ok) {
                     SwingUtilities.invokeLater(() -> {
                         setStatus("Login successful! Loading cinema...", new Color(46, 125, 50));
                         dispose();
-                        BookingFrame bookingFrame = new BookingFrame(client, ok.username(), ok.userId());
+                        BookingFrame bookingFrame = new BookingFrame(activeClient, ok.username(), ok.userId(), ProtocolConstants.DEFAULT_SHOW_ID, ok.role());
                         bookingFrame.initialize();
                         bookingFrame.setVisible(true);
                     });
                 } else if (reply instanceof LoginFailedReply failed) {
-                    client.disconnect();
+                    activeClient.disconnect();
                     SwingUtilities.invokeLater(() -> {
                         setStatus("Login failed: " + failed.message(), Color.RED);
                         setFormEnabled(true);
                     });
                 } else {
-                    client.disconnect();
+                    activeClient.disconnect();
                     SwingUtilities.invokeLater(() -> {
                         setStatus("Unexpected server response: " + reply.getType(), Color.RED);
                         setFormEnabled(true);
                     });
                 }
             } catch (Exception e) {
-                client.disconnect();
+                if (client != null) {
+                    client.disconnect();
+                }
                 SwingUtilities.invokeLater(() -> {
-                    setStatus("Login error: " + e.getMessage(), Color.RED);
+                    setStatus((useTls ? "Secure connection/login failed: " : "Connection/login failed: ") + e.getMessage(), Color.RED);
                     setFormEnabled(true);
                 });
             }
@@ -266,6 +296,72 @@ public final class LoginFrame extends JFrame {
 
         networkThread.setDaemon(true);
         networkThread.start();
+    }
+
+    private void discoverServers() {
+        btnDiscover.setEnabled(false);
+        setStatus("Searching for SeatSync servers on the local network...", new Color(21, 101, 192));
+        Thread discoveryThread = new Thread(() -> {
+            try {
+                List<DiscoveryResponse> discovered = UdpDiscoveryProbe.discoverAll(
+                    DiscoveryConstants.DEFAULT_UDP_PORT, DiscoveryConstants.DEFAULT_TIMEOUT_MS);
+                SwingUtilities.invokeLater(() -> {
+                    btnDiscover.setEnabled(true);
+                    if (discovered.isEmpty()) {
+                        setStatus("No server discovered. Enter its address and port manually.", Color.RED);
+                        return;
+                    }
+                    String[] choices = discovered.stream()
+                        .map(server -> server.serverIp() + ":" + server.tcpPort()
+                            + (server.tlsRequired() ? " (TLS required, port " + server.tlsPort() + ")" : " (TLS optional)"))
+                        .toArray(String[]::new);
+                    Object choice = javax.swing.JOptionPane.showInputDialog(this,
+                        "Select a discovered server:", "SeatSync Server Discovery",
+                        javax.swing.JOptionPane.QUESTION_MESSAGE, null, choices, choices[0]);
+                    if (choice == null) {
+                        setStatus("Discovery complete. You can enter an address manually.", new Color(100, 116, 139));
+                        return;
+                    }
+                    int index = java.util.Arrays.asList(choices).indexOf(choice.toString());
+                    DiscoveryResponse selected = discovered.get(index);
+                    if (selected.tlsRequired() && (selected.tlsPort() < 1 || selected.tlsPort() > 65535)) {
+                        setStatus("Discovered server requires TLS but advertised an invalid TLS port.", Color.RED);
+                        return;
+                    }
+                    txtHost.setText(selected.serverIp());
+                    discoveredHost = selected.serverIp();
+                    discoveredTcpPort = selected.tcpPort();
+                    discoveredTlsPort = selected.tlsPort();
+                    discoveryRequiresTls = selected.tlsRequired();
+                    chkTls.setSelected(discoveryRequiresTls);
+                    chkTls.setEnabled(!discoveryRequiresTls);
+                    updateDiscoveredTransport();
+                    setStatus("Selected " + selected.serverIp() + ":" + txtPort.getText()
+                        + (discoveryRequiresTls ? " (TLS 1.3 required)" : ""), new Color(46, 125, 50));
+                });
+            } catch (IOException e) {
+                SwingUtilities.invokeLater(() -> {
+                    btnDiscover.setEnabled(true);
+                    setStatus("Server discovery failed: " + e.getMessage(), Color.RED);
+                });
+            }
+        }, "seatsync-udp-discovery");
+        discoveryThread.setDaemon(true);
+        discoveryThread.start();
+    }
+
+    private void updateDiscoveredTransport() {
+        if (discoveredHost == null || !discoveredHost.equals(txtHost.getText().trim())) {
+            return;
+        }
+        if (discoveryRequiresTls) {
+            chkTls.setSelected(true);
+            txtPort.setText(Integer.toString(discoveredTlsPort));
+        } else if (chkTls.isSelected() && discoveredTlsPort > 0) {
+            txtPort.setText(Integer.toString(discoveredTlsPort));
+        } else {
+            txtPort.setText(Integer.toString(discoveredTcpPort));
+        }
     }
 
     private void setStatus(String message, Color color) {
@@ -279,5 +375,7 @@ public final class LoginFrame extends JFrame {
         txtUsername.setEnabled(enabled);
         txtPassword.setEnabled(enabled);
         btnLogin.setEnabled(enabled);
+        btnDiscover.setEnabled(enabled);
+        chkTls.setEnabled(enabled && !discoveryRequiresTls);
     }
 }

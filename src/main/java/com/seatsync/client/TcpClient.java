@@ -4,6 +4,7 @@ import com.seatsync.common.model.ProtocolConstants;
 import com.seatsync.common.protocol.ProtocolJson;
 import com.seatsync.common.protocol.ReplyMessage;
 import com.seatsync.common.protocol.RequestMessage;
+import com.seatsync.security.tls.TrustedTlsSocket;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -18,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.net.ssl.SSLContext;
 
 /**
  * Standard TCP Socket client communicating over persistent streaming socket with the SeatSync server.
@@ -37,6 +39,7 @@ public class TcpClient implements AutoCloseable {
     private final String host;
     private final int port;
     private final ClientMessageHandler messageHandler;
+    private final SSLContext tlsContext;
 
     private final Object writeLock = new Object();
     private final AtomicBoolean connected = new AtomicBoolean(false);
@@ -57,9 +60,18 @@ public class TcpClient implements AutoCloseable {
      * @param messageHandler Message handler for incoming frames
      */
     public TcpClient(String host, int port, ClientMessageHandler messageHandler) {
+        this(host, port, messageHandler, null);
+    }
+
+    /**
+     * Constructs a client that uses TLS 1.3 when a trust-configured context is supplied.
+     * A failed TLS connection is never retried as plaintext.
+     */
+    public TcpClient(String host, int port, ClientMessageHandler messageHandler, SSLContext tlsContext) {
         this.host = Objects.requireNonNull(host, "host must not be null").trim();
         this.port = port;
         this.messageHandler = (messageHandler != null) ? messageHandler : new ClientMessageHandler();
+        this.tlsContext = tlsContext;
     }
 
     /**
@@ -91,8 +103,12 @@ public class TcpClient implements AutoCloseable {
         }
 
         closing.set(false);
-        socket = new Socket();
-        socket.connect(new InetSocketAddress(host, port), timeoutMs);
+        if (tlsContext == null) {
+            socket = new Socket();
+            socket.connect(new InetSocketAddress(host, port), timeoutMs);
+        } else {
+            socket = TrustedTlsSocket.connect(tlsContext, host, port, timeoutMs);
+        }
         socket.setTcpNoDelay(true);
 
         reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), ProtocolConstants.CHARSET));
@@ -238,6 +254,10 @@ public class TcpClient implements AutoCloseable {
 
     public int getPort() {
         return port;
+    }
+
+    public boolean isTlsEnabled() {
+        return tlsContext != null;
     }
 
     public ClientMessageHandler getMessageHandler() {

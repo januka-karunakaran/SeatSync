@@ -5,6 +5,8 @@ import com.seatsync.common.model.SeatStatus;
 import com.seatsync.common.model.SeatView;
 import com.seatsync.common.protocol.ReplyMessage;
 import com.seatsync.common.protocol.event.SeatUpdatedEvent;
+import com.seatsync.common.protocol.event.SeatHeldEvent;
+import com.seatsync.common.protocol.event.SeatReleasedEvent;
 import com.seatsync.common.protocol.reply.BookOkReply;
 import com.seatsync.common.protocol.reply.BookRejectedReply;
 import com.seatsync.common.protocol.reply.CancelOkReply;
@@ -78,6 +80,36 @@ class ClientMessageHandlerTest {
             @Override
             public void onSeatUpdated(SeatUpdatedEvent event) {
                 eventRef.set(event);
+            }
+
+            @Test
+            @DisplayName("Dispatches hold and release events to the desktop presentation listener")
+            void testDispatchHoldLifecycleEvents() {
+                AtomicReference<SeatHeldEvent> held = new AtomicReference<>();
+                AtomicReference<SeatReleasedEvent> released = new AtomicReference<>();
+                handler.addListener(new ClientMessageHandler.Listener() {
+                    @Override
+                    public void onSeatHeld(SeatHeldEvent event) {
+                        held.set(event);
+                    }
+
+                    @Override
+                    public void onSeatReleased(SeatReleasedEvent event) {
+                        released.set(event);
+                    }
+                });
+
+                handler.handleIncomingLine(
+                    "{\"type\":\"SEAT_HELD_EVENT\",\"showId\":\"SHOW-01\",\"seatId\":\"C4\",\"holdId\":\"HLD-1\",\"expiresAt\":2000,\"version\":2}",
+                    pendingRequests);
+                handler.handleIncomingLine(
+                    "{\"type\":\"SEAT_RELEASED_EVENT\",\"showId\":\"SHOW-01\",\"seatId\":\"C4\",\"holdId\":\"HLD-1\",\"version\":3}",
+                    pendingRequests);
+
+                assertNotNull(held.get());
+                assertEquals("C4", held.get().seatId());
+                assertNotNull(released.get());
+                assertEquals("HLD-1", released.get().holdId());
             }
         });
 

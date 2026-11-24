@@ -1,8 +1,8 @@
 # SeatSync - Real-Time Ticket Booking System
 
-A lightweight, high-performance, real-time ticket booking system built in Java 21 for a 5-person undergraduate network programming assignment (4-day implementation sprint).
+A lightweight, real-time ticket booking system built in Java for a 5-person network programming assignment.
 
-SeatSync allows concurrent desktop clients to authenticate, inspect live auditorium seating for a single show (`SHOW-01`), book seats (`A1`–`E8`, 40 total seats) without race conditions, cancel bookings, and receive instantaneous real-time seat update notifications broadcast from a non-blocking Java NIO server.
+SeatSync provides a Swing desktop client and a Java NIO server for authenticated multi-show browsing, seat holds/bookings, waitlists, digital tickets, administration, LAN discovery, and optional TLS 1.3 transport.
 
 ---
 
@@ -26,7 +26,7 @@ To maintain strict alignment with undergraduate network programming core concept
 - **Testing:** JUnit 5 (`junit-jupiter`)
 - **Concurrency:** `ExecutorService`, atomic primitives, fine-grained thread-safe locks
 - **Data Model:** Pure in-memory transactional seat repository (Auditorium: 5 rows `A`–`E`, 8 columns `1`–`8` = 40 seats, Show: `SHOW-01`)
-- **Explicit Exclusions:** No Spring Boot, no React/web frontend, no external databases (MongoDB/PostgreSQL), no third-party payment APIs, and no TLS/SSL complexity. Planned security is session-based authentication and authorization.
+- **Explicit Exclusions:** No Spring Boot, no React/web frontend, no external databases (MongoDB/PostgreSQL), and no third-party payment APIs. Production endpoints should use the configured TLS 1.3 transport.
 
 ---
 
@@ -38,7 +38,7 @@ To maintain strict alignment with undergraduate network programming core concept
 | **Member 02** | Network Protocol, Shared Contracts, DTOs & Serialization *(Author of PR00)* | Wire framing (UTF-8 LF, 16 KiB limit), immutable DTOs, `RequestContext`, `ProtocolJson`, protocol test suite |
 | **Member 03** | Booking Engine & In-Memory Concurrency Control | Thread-safe seat state, `ReservationService` implementation, `ExecutorService` task scheduling, lock manager |
 | **Member 04** | Authentication, User Sessions & Security Validation | `AuthService` implementation, credential verification, session-bound authorization, defensive frame validation |
-| **Member 05** | Client Network Layer & Swing GUI Presentation | `java.net.Socket` TCP client adapter, Swing interactive 40-seat grid UI, real-time push event listener |
+| **Member 05** | Desktop / Presentation Lead | Swing customer/admin UI, JSON/TCP client integration, live events, UDP server discovery, TLS 1.3 client, tickets and documentation |
 
 ---
 
@@ -135,3 +135,7 @@ SeatSync/
 - [Wire Protocol & Contract Signatures](docs/PROTOCOL.md)
 - [Team Ownership & Workflow Guide](docs/CONTRIBUTIONS.md)
 - [Verification & Test Plan](docs/TEST_PLAN.md)
+- [Desktop client navigation and workflows](docs/CLIENT_UI.md)
+- [TLS and UDP server discovery setup](docs/CLIENT_TLS_DISCOVERY.md)
+- [Member 05 final report](docs/MEMBER05_FINAL_REPORT.pdf)
+- [Member 05 live GUI evidence](docs/evidence/)

@@ -29,7 +29,7 @@ import java.util.function.Consumer;
  * <p>
  * Thread-safe: UI state mutations are guaranteed to execute on the Swing Event Dispatch Thread (EDT).
  * <p>
- * Owned by Member 01 (TCP Socket Programming & Desktop Client).
+ * Owned by Member 05 (Desktop UI & Presentation).
  */
 @SuppressWarnings({"serial", "this-escape"})
 public final class SeatGridPanel extends JPanel {
@@ -39,6 +39,7 @@ public final class SeatGridPanel extends JPanel {
     // Visual Palette
     private static final Color COLOR_AVAILABLE = new Color(46, 125, 50);     // Forest Green
     private static final Color COLOR_BOOKED = new Color(198, 40, 40);        // Deep Red
+    private static final Color COLOR_HELD = new Color(239, 108, 0);            // Amber
     private static final Color COLOR_MY_BOOKING = new Color(25, 118, 210);    // Royal Blue
     private static final Color COLOR_SELECTED = new Color(255, 179, 0);      // Amber Gold
     private static final Color COLOR_SCREEN_BG = new Color(55, 71, 79);      // Slate Charcoal
@@ -210,6 +211,7 @@ public final class SeatGridPanel extends JPanel {
 
             boolean isSelected = seatId.equals(selectedSeatId);
             boolean isBooked = view != null && view.status() == SeatStatus.BOOKED;
+            boolean isHeld = view != null && view.status() == SeatStatus.HELD;
             boolean isMine = isBooked && currentUserId != null && currentUserId.equals(view.bookedBy());
 
             btn.setUI(new javax.swing.plaf.basic.BasicButtonUI());
@@ -226,6 +228,11 @@ public final class SeatGridPanel extends JPanel {
                 btn.setBackground(COLOR_MY_BOOKING);
                 btn.setForeground(Color.WHITE);
                 btn.setBorder(BorderFactory.createLineBorder(new Color(13, 71, 161), 1));
+            } else if (isHeld) {
+                btn.setText("<html><center><font color='#ffffff'><b>" + seatId + "</b><br><small style='font-size:9px'>Held</small></font></center></html>");
+                btn.setBackground(COLOR_HELD);
+                btn.setForeground(Color.WHITE);
+                btn.setBorder(BorderFactory.createLineBorder(new Color(230, 81, 0), 1));
             } else if (isBooked) {
                 btn.setText("<html><center><font color='#ffffff'><b>" + seatId + "</b><br><small style='font-size:9px'>Booked</small></font></center></html>");
                 btn.setBackground(COLOR_BOOKED);
@@ -240,7 +247,7 @@ public final class SeatGridPanel extends JPanel {
 
             // Tooltip and accessibility text
             String ownerText = isMine ? " (You)" : (isBooked && view.bookedBy() != null ? " (" + view.bookedBy() + ")" : "");
-            String statusText = isBooked ? "Booked" + ownerText : "Available";
+            String statusText = isBooked ? "Booked" + ownerText : (isHeld ? "Held" : "Available");
             btn.setToolTipText("Seat " + seatId + " - " + statusText);
             btn.repaint();
         }

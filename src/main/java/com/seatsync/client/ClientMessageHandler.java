@@ -4,7 +4,11 @@ import com.seatsync.common.protocol.Message;
 import com.seatsync.common.protocol.ProtocolJson;
 import com.seatsync.common.protocol.ReplyMessage;
 import com.seatsync.common.protocol.event.SeatUpdatedEvent;
+import com.seatsync.common.protocol.event.SeatHeldEvent;
+import com.seatsync.common.protocol.event.SeatReleasedEvent;
+import com.seatsync.common.protocol.event.ShowUpdatedEvent;
 import com.seatsync.common.protocol.event.WaitlistPromotedEvent;
+import com.seatsync.common.protocol.event.MetricsUpdatedEvent;
 import com.seatsync.common.protocol.reply.BookOkReply;
 import com.seatsync.common.protocol.reply.BookRejectedReply;
 import com.seatsync.common.protocol.reply.CancelOkReply;
@@ -44,6 +48,10 @@ public class ClientMessageHandler {
         default void onCancelRejected(CancelRejectedReply reply) {}
         default void onLogoutSuccess(LogoutOkReply reply) {}
         default void onWaitlistPromoted(WaitlistPromotedEvent event) {}
+        default void onSeatHeld(SeatHeldEvent event) {}
+        default void onSeatReleased(SeatReleasedEvent event) {}
+        default void onShowUpdated(ShowUpdatedEvent event) {}
+        default void onMetricsUpdated(MetricsUpdatedEvent event) {}
         default void onSeatUpdated(SeatUpdatedEvent event) {}
         default void onError(ErrorReply error) {}
         default void onMalformedMessage(String rawJson, String errorMessage) {}
@@ -104,6 +112,34 @@ public class ClientMessageHandler {
             for (Listener listener : listeners) {
                 try {
                     listener.onWaitlistPromoted(offer);
+                } catch (Exception ignored) {
+                }
+            }
+        } else if (message instanceof SeatHeldEvent event) {
+            for (Listener listener : listeners) {
+                try {
+                    listener.onSeatHeld(event);
+                } catch (Exception ignored) {
+                }
+            }
+        } else if (message instanceof SeatReleasedEvent event) {
+            for (Listener listener : listeners) {
+                try {
+                    listener.onSeatReleased(event);
+                } catch (Exception ignored) {
+                }
+            }
+        } else if (message instanceof ShowUpdatedEvent event) {
+            for (Listener listener : listeners) {
+                try {
+                    listener.onShowUpdated(event);
+                } catch (Exception ignored) {
+                }
+            }
+        } else if (message instanceof MetricsUpdatedEvent event) {
+            for (Listener listener : listeners) {
+                try {
+                    listener.onMetricsUpdated(event);
                 } catch (Exception ignored) {
                 }
             }

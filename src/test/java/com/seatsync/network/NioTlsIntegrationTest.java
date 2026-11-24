@@ -15,6 +15,8 @@ import com.seatsync.common.protocol.request.LoginRequest;
 import com.seatsync.network.metrics.NetworkMetricsTracker;
 import com.seatsync.network.tls.TlsTestHelper;
 import com.seatsync.network.tls.TlsTestHelper.SslContextBundle;
+import com.seatsync.network.discovery.DiscoveryResponse;
+import com.seatsync.network.discovery.UdpDiscoveryProbe;
 import com.seatsync.server.MockRequestDispatcher;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -204,6 +206,42 @@ class NioTlsIntegrationTest {
             } catch (Exception ignored) {
             }
         }
+    }
+
+    @Test
+    @DisplayName("UDP discovery advertises TLS ports and distinguishes optional from required TLS")
+    void testDiscoveryAdvertisesTlsTransport() throws Exception {
+        int discoveryPort = server.getDiscoveryListener().getPort();
+        DiscoveryResponse optional = UdpDiscoveryProbe.probe("127.0.0.1", discoveryPort, 500).stream()
+            .findFirst().orElseThrow();
+
+        assertEquals(plainPort, optional.tcpPort());
+        assertEquals(tlsPort, optional.tlsPort());
+        assertEquals(false, optional.tlsRequired());
+
+        server.stop();
+        ServerConfig requiredConfig = new ServerConfig(
+            ServerConfig.DEFAULT_HOST,
+            0,
+            ProtocolConstants.MAX_FRAME_BYTES,
+            ServerConfig.DEFAULT_READ_BUFFER_BYTES,
+            TlsConfigMode.REQUIRED,
+            0,
+            sslBundle.serverContext(),
+            true,
+            0,
+            null
+        );
+        server = new NioBookingServer(requiredConfig, new MockRequestDispatcher());
+        server.start();
+
+        int requiredDiscoveryPort = server.getDiscoveryListener().getPort();
+        DiscoveryResponse required = UdpDiscoveryProbe.probe("127.0.0.1", requiredDiscoveryPort, 500).stream()
+            .findFirst().orElseThrow();
+
+        assertEquals(server.getTlsPort(), required.tcpPort());
+        assertEquals(server.getTlsPort(), required.tlsPort());
+        assertEquals(true, required.tlsRequired());
     }
 
     @Test

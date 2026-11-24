@@ -1096,7 +1096,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         brandRow.add(logo);
         brandRow.add(brand);
 
-        StatusBadge verifiedBadge = new StatusBadge("CRYPTOGRAPHICALLY VERIFIED", StatusBadge.StatusType.SUCCESS);
+        StatusBadge verifiedBadge = new StatusBadge("CRYPTOGRAPHICALLY VERIFIED", StatusBadge.Type.SUCCESS);
         verifiedBadge.setAlignmentX(CENTER_ALIGNMENT);
 
         RoundedPanel seatBox = new RoundedPanel(UISpacing.RADIUS_MEDIUM, UIColors.DEEP_CHARCOAL, UIColors.DEEP_CHARCOAL, 1, false);

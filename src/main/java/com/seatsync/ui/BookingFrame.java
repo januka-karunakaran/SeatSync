@@ -523,6 +523,53 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         );
         page.add(header, BorderLayout.NORTH);
 
+        // Auditorium Screenings Banner (Cinema Auditorium & Stage Art)
+        RoundedPanel showsBanner = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.SURFACE_DARK, UIColors.DARK_BORDER, 1, true) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                int w = getWidth();
+                int h = getHeight();
+                if (w > 0 && h > 0) {
+                    Image bannerImg = ImageResourceManager.getCinemaAuditoriumBanner(w, h);
+                    if (bannerImg != null) {
+                        Graphics2D g2 = (Graphics2D) g.create();
+                        SeatSyncTheme.enableAntiAliasing(g2);
+                        g2.clip(new java.awt.geom.RoundRectangle2D.Float(0, 0, w, h, UISpacing.RADIUS_LARGE, UISpacing.RADIUS_LARGE));
+                        g2.drawImage(bannerImg, 0, 0, w, h, this);
+                        g2.dispose();
+                    }
+                }
+            }
+        };
+        showsBanner.setLayout(new BorderLayout(14, 6));
+        showsBanner.setBorder(BorderFactory.createEmptyBorder(16, 20, 16, 20));
+        showsBanner.setPreferredSize(new Dimension(0, 100));
+        showsBanner.setMaximumSize(new Dimension(Integer.MAX_VALUE, 100));
+
+        JPanel bannerText = new JPanel();
+        bannerText.setLayout(new BoxLayout(bannerText, BoxLayout.Y_AXIS));
+        bannerText.setOpaque(false);
+
+        JLabel bannerTag = new JLabel("FEATURED SCREENINGS & AUDITORIUMS");
+        bannerTag.setFont(UIFonts.BADGE);
+        bannerTag.setForeground(UIColors.LAVENDER_PRIMARY);
+
+        JLabel bannerTitle = new JLabel("Experience Blockbusters in IMAX & Dolby Surround");
+        bannerTitle.setFont(UIFonts.TITLE_MEDIUM);
+        bannerTitle.setForeground(UIColors.PURE_WHITE);
+
+        JLabel bannerSub = new JLabel("Select an active screening below to open the real-time cinema seating plan and reserve your seats.");
+        bannerSub.setFont(UIFonts.BODY_SMALL);
+        bannerSub.setForeground(new Color(0xD8, 0xD5, 0xE3));
+
+        bannerText.add(bannerTag);
+        bannerText.add(Box.createVerticalStrut(4));
+        bannerText.add(bannerTitle);
+        bannerText.add(Box.createVerticalStrut(4));
+        bannerText.add(bannerSub);
+        showsBanner.add(bannerText, BorderLayout.CENTER);
+
         RoundedPanel tableCard = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.PURE_WHITE, UIColors.LIGHT_BORDER, 1, true);
         tableCard.setLayout(new BorderLayout());
         tableCard.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -532,7 +579,14 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         scrollPane.getViewport().setBackground(UIColors.PURE_WHITE);
         tableCard.add(scrollPane, BorderLayout.CENTER);
 
-        page.add(tableCard, BorderLayout.CENTER);
+        JPanel centerContainer = new JPanel();
+        centerContainer.setLayout(new BoxLayout(centerContainer, BoxLayout.Y_AXIS));
+        centerContainer.setOpaque(false);
+        centerContainer.add(showsBanner);
+        centerContainer.add(Box.createVerticalStrut(10));
+        centerContainer.add(tableCard);
+
+        page.add(centerContainer, BorderLayout.CENTER);
 
         lblShowState = new JLabel("Loading shows...");
         lblShowState.setFont(UIFonts.CAPTION);

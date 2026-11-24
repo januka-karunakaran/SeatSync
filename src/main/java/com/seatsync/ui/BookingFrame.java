@@ -107,7 +107,9 @@ import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.GradientPaint;
 import java.awt.GridLayout;
+import java.awt.Image;
 import java.io.IOException;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -748,8 +750,32 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         home.setBackground(UIColors.SOFT_WHITE);
         home.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 14));
 
-        // Top Cinematic Hero Section (Netflix inspiration)
-        RoundedPanel heroPanel = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.SURFACE_DARK, UIColors.DARK_BORDER, 1, true);
+        // Top Cinematic Hero Section (Netflix inspiration with tilted movie poster collage)
+        RoundedPanel heroPanel = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.SURFACE_DARK, UIColors.DARK_BORDER, 1, true) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                int w = getWidth();
+                int h = getHeight();
+                if (w > 0 && h > 0) {
+                    Image heroBg = ImageResourceManager.getCinematicHeroBanner(w, h);
+                    if (heroBg != null) {
+                        Graphics2D g2 = (Graphics2D) g.create();
+                        SeatSyncTheme.enableAntiAliasing(g2);
+                        g2.clip(new java.awt.geom.RoundRectangle2D.Float(0, 0, w, h, UISpacing.RADIUS_LARGE, UISpacing.RADIUS_LARGE));
+                        g2.drawImage(heroBg, 0, 0, w, h, this);
+                        // Text scrim overlay to keep buttons and headlines razor sharp
+                        GradientPaint textScrim = new GradientPaint(
+                            0, 0, new Color(0x10, 0x10, 0x14, 230),
+                            (int) (w * 0.60), 0, new Color(0x10, 0x10, 0x14, 75)
+                        );
+                        g2.setPaint(textScrim);
+                        g2.fillRect(0, 0, w, h);
+                        g2.dispose();
+                    }
+                }
+            }
+        };
         heroPanel.setLayout(new BorderLayout(20, 10));
         heroPanel.setBorder(BorderFactory.createEmptyBorder(20, 24, 20, 24));
 

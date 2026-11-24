@@ -10,13 +10,24 @@ import com.seatsync.network.discovery.DiscoveryConstants;
 import com.seatsync.network.discovery.DiscoveryResponse;
 import com.seatsync.network.discovery.UdpDiscoveryProbe;
 import com.seatsync.security.tls.TlsContextFactory;
+import com.seatsync.ui.assets.ImageResourceManager;
+import com.seatsync.ui.components.ModernButton;
+import com.seatsync.ui.components.RoundedPanel;
+import com.seatsync.ui.components.StatusBadge;
+import com.seatsync.ui.theme.SeatSyncTheme;
+import com.seatsync.ui.theme.UIColors;
+import com.seatsync.ui.theme.UIFonts;
+import com.seatsync.ui.theme.UISpacing;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
+import javax.swing.ImageIcon;
+import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPasswordField;
 import javax.swing.JTextField;
@@ -24,26 +35,31 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Cursor;
 import java.awt.Dimension;
-import java.awt.Font;
+import java.awt.FlowLayout;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.awt.GridLayout;
+import java.awt.Image;
 import java.awt.Insets;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
-import java.security.GeneralSecurityException;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Authentication and endpoint configuration frame for the SeatSync client.
+ * Premium cinematic authentication and connection configuration window for SeatSync.
  * <p>
- * Handles network connection attempts, validates host/port input, initiates
- * the TCP handshake, and submits the LOGIN protocol message.
+ * Implements a modern two-column desktop presentation:
+ * - Left column: Atmospheric cinematic brand hero with dark gradient and feature highlights.
+ * - Right column: Minimalist, card-based credential and server discovery interface.
  * <p>
- * Owned by Member 05 (Desktop UI & Presentation).
+ * Preserves all underlying TCP/TLS socket transport, UDP discovery, and protocol message flows.
  */
 @SuppressWarnings({"serial", "this-escape"})
 public final class LoginFrame extends JFrame {
@@ -54,151 +70,246 @@ public final class LoginFrame extends JFrame {
     private final transient JTextField txtPort;
     private final transient JTextField txtUsername;
     private final transient JPasswordField txtPassword;
-    private final transient ThemedButton btnLogin;
-    private final transient ThemedButton btnDiscover;
+    private final transient ModernButton btnLogin;
+    private final transient ModernButton btnDiscover;
     private final transient JCheckBox chkTls;
     private final transient JLabel lblStatus;
+    private final transient JButton btnTogglePassword;
+
     private boolean discoveryRequiresTls;
     private String discoveredHost;
     private int discoveredTcpPort;
     private int discoveredTlsPort;
+    private boolean passwordVisible = false;
 
     /**
-     * Constructs the LoginFrame with default connection parameters.
+     * Constructs the redesigned LoginFrame with modern cinematic theme.
      *
      * @param defaultHost Initial server host
      * @param defaultPort Initial server port
      */
-    @SuppressWarnings("this-escape")
     public LoginFrame(String defaultHost, int defaultPort) {
-        super("SeatSync - Cinema Ticket Booking Login");
+        super("SeatSync - Real-Time Cinema Ticket Booking");
+        SeatSyncTheme.applyGlobalTheme();
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(500, 500);
-        setMinimumSize(new Dimension(450, 450));
+        setSize(940, 580);
+        setMinimumSize(new Dimension(860, 520));
         setLocationRelativeTo(null);
-        setResizable(false);
+        setResizable(true);
 
-        JPanel mainPanel = new JPanel(new BorderLayout(15, 15));
-        mainPanel.setBorder(BorderFactory.createEmptyBorder(20, 25, 20, 25));
-        mainPanel.setBackground(new Color(248, 249, 250));
-        setContentPane(mainPanel);
+        JPanel rootPanel = new JPanel(new GridLayout(1, 2, 0, 0));
+        setContentPane(rootPanel);
 
-        // Header Banner
-        JPanel headerPanel = new JPanel();
-        headerPanel.setLayout(new BoxLayout(headerPanel, BoxLayout.Y_AXIS));
-        headerPanel.setOpaque(false);
+        // -------------------------------------------------------------
+        // LEFT COLUMN: Cinematic Hero Section (Dark & Atmospheric)
+        // -------------------------------------------------------------
+        JPanel leftHeroPanel = new JPanel() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g.create();
+                SeatSyncTheme.enableAntiAliasing(g2);
+                Image hero = ImageResourceManager.getCinematicHeroBanner(getWidth(), getHeight());
+                g2.drawImage(hero, 0, 0, getWidth(), getHeight(), null);
+                g2.dispose();
+            }
+        };
+        leftHeroPanel.setLayout(new BorderLayout());
+        leftHeroPanel.setBorder(BorderFactory.createEmptyBorder(45, 45, 45, 45));
 
-        JLabel titleLabel = new JLabel("SeatSync Cinema Client");
-        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 20));
-        titleLabel.setAlignmentX(CENTER_ALIGNMENT);
+        JPanel heroContent = new JPanel();
+        heroContent.setLayout(new BoxLayout(heroContent, BoxLayout.Y_AXIS));
+        heroContent.setOpaque(false);
 
-        JLabel subLabel = new JLabel("Real-Time Multi-User Ticket Booking System");
-        subLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        subLabel.setForeground(new Color(100, 116, 139));
-        subLabel.setAlignmentX(CENTER_ALIGNMENT);
+        // Brand Logo & Name
+        JPanel brandRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+        brandRow.setOpaque(false);
+        brandRow.setAlignmentX(LEFT_ALIGNMENT);
+        JLabel logoLabel = new JLabel(new ImageIcon(ImageResourceManager.getSeatSyncLogo(38, 38)));
+        JLabel brandLabel = new JLabel("SeatSync");
+        brandLabel.setFont(UIFonts.TITLE_LARGE);
+        brandLabel.setForeground(UIColors.PURE_WHITE);
+        brandRow.add(logoLabel);
+        brandRow.add(brandLabel);
 
-        headerPanel.add(titleLabel);
-        headerPanel.add(Box.createVerticalStrut(4));
-        headerPanel.add(subLabel);
-        mainPanel.add(headerPanel, BorderLayout.NORTH);
+        // Headline & Subtitle
+        JLabel heroHeadline = new JLabel("<html>Your Cinema Experience<br>Starts Here</html>");
+        heroHeadline.setFont(UIFonts.HERO_TITLE);
+        heroHeadline.setForeground(UIColors.PURE_WHITE);
+        heroHeadline.setAlignmentX(LEFT_ALIGNMENT);
 
-        // Form Fields (GridBagLayout)
-        JPanel formPanel = new JPanel(new GridBagLayout());
-        formPanel.setOpaque(false);
-        formPanel.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(226, 232, 240), 1),
-            BorderFactory.createEmptyBorder(15, 15, 15, 15)
-        ));
+        JLabel heroSubtitle = new JLabel(
+            "<html>Real-time seat reservations, synchronized across clients with microsecond precision. Select your favorite show and book instantly.</html>"
+        );
+        heroSubtitle.setFont(UIFonts.BODY);
+        heroSubtitle.setForeground(new Color(0xD8, 0xD5, 0xE3));
+        heroSubtitle.setAlignmentX(LEFT_ALIGNMENT);
+        heroSubtitle.setPreferredSize(new Dimension(400, 60));
+        heroSubtitle.setMaximumSize(new Dimension(420, 70));
 
+        // Feature Highlights
+        JPanel highlightsPanel = new JPanel();
+        highlightsPanel.setLayout(new BoxLayout(highlightsPanel, BoxLayout.Y_AXIS));
+        highlightsPanel.setOpaque(false);
+        highlightsPanel.setAlignmentX(LEFT_ALIGNMENT);
+        highlightsPanel.add(createFeatureItem("Non-blocking Java NIO 21 Server (16 KiB frame ceiling)"));
+        highlightsPanel.add(Box.createVerticalStrut(10));
+        highlightsPanel.add(createFeatureItem("Zero-configuration UDP LAN Discovery Probe"));
+        highlightsPanel.add(Box.createVerticalStrut(10));
+        highlightsPanel.add(createFeatureItem("End-to-End TLS 1.3 Transport Security"));
+
+        heroContent.add(brandRow);
+        heroContent.add(Box.createVerticalStrut(28));
+        heroContent.add(heroHeadline);
+        heroContent.add(Box.createVerticalStrut(14));
+        heroContent.add(heroSubtitle);
+        heroContent.add(Box.createVerticalStrut(30));
+        heroContent.add(highlightsPanel);
+        heroContent.add(Box.createVerticalGlue());
+
+        JLabel versionLabel = new JLabel("SeatSync v2.0 • Member 02 Network Engine");
+        versionLabel.setFont(UIFonts.CAPTION);
+        versionLabel.setForeground(new Color(0xA9, 0x9A, 0xCD));
+
+        leftHeroPanel.add(heroContent, BorderLayout.CENTER);
+        leftHeroPanel.add(versionLabel, BorderLayout.SOUTH);
+        rootPanel.add(leftHeroPanel);
+
+        // -------------------------------------------------------------
+        // RIGHT COLUMN: Clean, Elegant Login Card (FilmTIX Light Style)
+        // -------------------------------------------------------------
+        JPanel rightContainer = new JPanel(new BorderLayout());
+        rightContainer.setBackground(UIColors.SOFT_WHITE);
+        rightContainer.setBorder(BorderFactory.createEmptyBorder(26, 36, 26, 36));
+
+        JPanel formCard = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.PURE_WHITE, UIColors.LIGHT_BORDER, 1, true);
+        formCard.setLayout(new BorderLayout(14, 14));
+        formCard.setBorder(BorderFactory.createEmptyBorder(22, 24, 18, 24));
+
+        // Form Header
+        JPanel cardHeader = new JPanel();
+        cardHeader.setLayout(new BoxLayout(cardHeader, BoxLayout.Y_AXIS));
+        cardHeader.setOpaque(false);
+
+        JLabel lblLoginTitle = new JLabel("Welcome Back");
+        lblLoginTitle.setFont(UIFonts.TITLE_LARGE);
+        lblLoginTitle.setForeground(UIColors.TEXT_DARK);
+
+        JLabel lblLoginSub = new JLabel("Connect to SeatSync server to manage and book cinema tickets");
+        lblLoginSub.setFont(UIFonts.BODY_SMALL);
+        lblLoginSub.setForeground(UIColors.TEXT_SECONDARY);
+
+        cardHeader.add(lblLoginTitle);
+        cardHeader.add(Box.createVerticalStrut(4));
+        cardHeader.add(lblLoginSub);
+        formCard.add(cardHeader, BorderLayout.NORTH);
+
+        // Form Fields Container
+        JPanel fieldsPanel = new JPanel(new GridBagLayout());
+        fieldsPanel.setOpaque(false);
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(6, 6, 6, 6);
+        gbc.insets = new Insets(5, 0, 5, 0);
 
-        // Server Host
+        // Server Host & Port row
         gbc.gridx = 0;
         gbc.gridy = 0;
-        gbc.weightx = 0.3;
-        formPanel.add(new JLabel("Server Host:"), gbc);
+        gbc.gridwidth = 2;
+        gbc.weightx = 1.0;
+        JLabel lblEndpoint = new JLabel("Server Endpoint");
+        lblEndpoint.setFont(UIFonts.BODY_BOLD);
+        lblEndpoint.setForeground(UIColors.TEXT_DARK);
+        fieldsPanel.add(lblEndpoint, gbc);
 
-        gbc.gridx = 1;
-        gbc.weightx = 0.7;
-        txtHost = new JTextField(defaultHost != null ? defaultHost : "127.0.0.1", 15);
-        formPanel.add(txtHost, gbc);
-
-        // Server Port
-        gbc.gridx = 0;
         gbc.gridy = 1;
-        gbc.weightx = 0.3;
-        formPanel.add(new JLabel("Server Port:"), gbc);
+        JPanel endpointRow = new JPanel(new BorderLayout(8, 0));
+        endpointRow.setOpaque(false);
+        txtHost = createStyledTextField(defaultHost != null ? defaultHost : "127.0.0.1");
+        txtPort = createStyledTextField(String.valueOf(defaultPort > 0 ? defaultPort : ProtocolConstants.DEFAULT_PORT));
+        txtPort.setPreferredSize(new Dimension(80, 36));
+        endpointRow.add(txtHost, BorderLayout.CENTER);
+        endpointRow.add(txtPort, BorderLayout.EAST);
+        fieldsPanel.add(endpointRow, gbc);
 
-        gbc.gridx = 1;
-        gbc.weightx = 0.7;
-        txtPort = new JTextField(String.valueOf(defaultPort > 0 ? defaultPort : ProtocolConstants.DEFAULT_PORT), 15);
-        formPanel.add(txtPort, gbc);
-
-        gbc.gridx = 0;
+        // Connection Options (Discover + TLS)
         gbc.gridy = 2;
-        gbc.weightx = 0.3;
-        formPanel.add(new JLabel("Connection:"), gbc);
-        JPanel connectionOptions = new JPanel(new BorderLayout(6, 0));
+        JPanel connectionOptions = new JPanel(new BorderLayout(8, 0));
         connectionOptions.setOpaque(false);
-        btnDiscover = new ThemedButton("Discover Server", new Color(55, 71, 79), Color.WHITE);
+        btnDiscover = new ModernButton("Discover Server", ModernButton.Variant.SECONDARY);
+        btnDiscover.setFont(UIFonts.custom(java.awt.Font.BOLD, 12));
         btnDiscover.addActionListener(e -> discoverServers());
         connectionOptions.add(btnDiscover, BorderLayout.WEST);
+
         chkTls = new JCheckBox("Require TLS 1.3");
         chkTls.setOpaque(false);
+        chkTls.setFont(UIFonts.BODY_SMALL);
+        chkTls.setForeground(UIColors.TEXT_MUTED);
         chkTls.addActionListener(event -> updateDiscoveredTransport());
         connectionOptions.add(chkTls, BorderLayout.CENTER);
-        gbc.gridx = 1;
-        gbc.weightx = 0.7;
-        formPanel.add(connectionOptions, gbc);
+        fieldsPanel.add(connectionOptions, gbc);
 
         // Username
-        gbc.gridx = 0;
         gbc.gridy = 3;
-        gbc.weightx = 0.3;
-        formPanel.add(new JLabel("Username:"), gbc);
+        JLabel lblUser = new JLabel("Username");
+        lblUser.setFont(UIFonts.BODY_BOLD);
+        lblUser.setForeground(UIColors.TEXT_DARK);
+        fieldsPanel.add(lblUser, gbc);
 
-        gbc.gridx = 1;
-        gbc.weightx = 0.7;
-        txtUsername = new JTextField("alice", 15);
-        formPanel.add(txtUsername, gbc);
+        gbc.gridy = 4;
+        txtUsername = createStyledTextField("alice");
+        fieldsPanel.add(txtUsername, gbc);
 
         // Password
-        gbc.gridx = 0;
-        gbc.gridy = 4;
-        gbc.weightx = 0.3;
-        formPanel.add(new JLabel("Password:"), gbc);
+        gbc.gridy = 5;
+        JLabel lblPass = new JLabel("Password");
+        lblPass.setFont(UIFonts.BODY_BOLD);
+        lblPass.setForeground(UIColors.TEXT_DARK);
+        fieldsPanel.add(lblPass, gbc);
 
-        gbc.gridx = 1;
-        gbc.weightx = 0.7;
+        gbc.gridy = 6;
+        JPanel passwordRow = new JPanel(new BorderLayout(4, 0));
+        passwordRow.setOpaque(false);
         txtPassword = new JPasswordField("", 15);
-        formPanel.add(txtPassword, gbc);
+        styleInputField(txtPassword);
+        btnTogglePassword = new JButton(ImageResourceManager.getEyeIcon(false, 16));
+        btnTogglePassword.setFocusPainted(false);
+        btnTogglePassword.setBorderPainted(false);
+        btnTogglePassword.setContentAreaFilled(false);
+        btnTogglePassword.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        btnTogglePassword.setToolTipText("Show or hide password");
+        btnTogglePassword.addActionListener(e -> togglePasswordVisibility());
+        passwordRow.add(txtPassword, BorderLayout.CENTER);
+        passwordRow.add(btnTogglePassword, BorderLayout.EAST);
+        fieldsPanel.add(passwordRow, gbc);
 
-        mainPanel.add(formPanel, BorderLayout.CENTER);
+        formCard.add(fieldsPanel, BorderLayout.CENTER);
 
-        // Bottom Controls: Button + Status
-        JPanel bottomPanel = new JPanel();
-        bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.Y_AXIS));
-        bottomPanel.setOpaque(false);
+        // Form Footer: Submit button and status
+        JPanel footerPanel = new JPanel();
+        footerPanel.setLayout(new BoxLayout(footerPanel, BoxLayout.Y_AXIS));
+        footerPanel.setOpaque(false);
 
-        btnLogin = new ThemedButton("Connect & Log In", new Color(21, 101, 192), Color.WHITE);
-        btnLogin.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        btnLogin = new ModernButton("Connect & Log In", ModernButton.Variant.PRIMARY);
+        btnLogin.setFont(UIFonts.BUTTON);
         btnLogin.setAlignmentX(CENTER_ALIGNMENT);
-        btnLogin.setMaximumSize(new Dimension(Integer.MAX_VALUE, 42));
-        btnLogin.setPreferredSize(new Dimension(380, 42));
+        btnLogin.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
+        btnLogin.setPreferredSize(new Dimension(340, 44));
         btnLogin.addActionListener(e -> performLogin());
 
         lblStatus = new JLabel("Ready to connect", SwingConstants.CENTER);
-        lblStatus.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        lblStatus.setForeground(new Color(100, 116, 139));
+        lblStatus.setFont(UIFonts.CAPTION);
+        lblStatus.setForeground(UIColors.TEXT_SECONDARY);
         lblStatus.setAlignmentX(CENTER_ALIGNMENT);
+        lblStatus.setPreferredSize(new Dimension(360, 20));
 
-        bottomPanel.add(btnLogin);
-        bottomPanel.add(Box.createVerticalStrut(10));
-        bottomPanel.add(lblStatus);
-        mainPanel.add(bottomPanel, BorderLayout.SOUTH);
+        footerPanel.add(btnLogin);
+        footerPanel.add(Box.createVerticalStrut(10));
+        footerPanel.add(lblStatus);
+        formCard.add(footerPanel, BorderLayout.SOUTH);
+
+        rightContainer.add(formCard, BorderLayout.CENTER);
+        rootPanel.add(rightContainer);
 
         // Submit form on Enter key
         KeyAdapter enterSubmit = new KeyAdapter() {
@@ -215,6 +326,61 @@ public final class LoginFrame extends JFrame {
         txtPassword.addKeyListener(enterSubmit);
     }
 
+    private JPanel createFeatureItem(String text) {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        row.setOpaque(false);
+        row.setAlignmentX(LEFT_ALIGNMENT);
+
+        JPanel dot = new JPanel() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g.create();
+                SeatSyncTheme.enableAntiAliasing(g2);
+                g2.setColor(UIColors.LAVENDER_PRIMARY);
+                g2.fillOval(2, 5, 7, 7);
+                g2.dispose();
+            }
+        };
+        dot.setOpaque(false);
+        dot.setPreferredSize(new Dimension(14, 16));
+
+        JLabel desc = new JLabel(text);
+        desc.setFont(UIFonts.BODY_SMALL);
+        desc.setForeground(new Color(0xD8, 0xD5, 0xE3));
+        row.add(dot);
+        row.add(desc);
+        return row;
+    }
+
+    private JTextField createStyledTextField(String text) {
+        JTextField tf = new JTextField(text, 15);
+        styleInputField(tf);
+        return tf;
+    }
+
+    private void styleInputField(JTextField tf) {
+        tf.setFont(UIFonts.BODY);
+        tf.setForeground(UIColors.TEXT_DARK);
+        tf.setBackground(UIColors.PURE_WHITE);
+        tf.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(UIColors.LIGHT_BORDER, 1),
+            BorderFactory.createEmptyBorder(8, 12, 8, 12)
+        ));
+        tf.setPreferredSize(new Dimension(tf.getPreferredSize().width, 36));
+    }
+
+    private void togglePasswordVisibility() {
+        passwordVisible = !passwordVisible;
+        if (passwordVisible) {
+            txtPassword.setEchoChar((char) 0);
+            btnTogglePassword.setIcon(ImageResourceManager.getEyeIcon(true, 16));
+        } else {
+            txtPassword.setEchoChar('•');
+            btnTogglePassword.setIcon(ImageResourceManager.getEyeIcon(false, 16));
+        }
+    }
+
     private void performLogin() {
         String host = txtHost.getText().trim();
         String portStr = txtPort.getText().trim();
@@ -222,7 +388,7 @@ public final class LoginFrame extends JFrame {
         String password = new String(txtPassword.getPassword());
 
         if (host.isEmpty()) {
-            setStatus("Please provide a valid server host.", Color.RED);
+            setStatus("Please provide a valid server host.", UIColors.ERROR_RED);
             return;
         }
 
@@ -233,21 +399,21 @@ public final class LoginFrame extends JFrame {
                 throw new NumberFormatException();
             }
         } catch (NumberFormatException e) {
-            setStatus("Port must be a number between 1 and 65535.", Color.RED);
+            setStatus("Port must be a number between 1 and 65535.", UIColors.ERROR_RED);
             return;
         }
 
         if (username.isEmpty()) {
-            setStatus("Username cannot be empty.", Color.RED);
+            setStatus("Username cannot be empty.", UIColors.ERROR_RED);
             return;
         }
 
         if (discoveryRequiresTls && !chkTls.isSelected()) {
-            setStatus("This discovered server requires TLS 1.3. Plaintext connection is disabled.", Color.RED);
+            setStatus("Discovered server requires TLS 1.3. Plaintext connection is disabled.", UIColors.ERROR_RED);
             return;
         }
 
-        setStatus("Connecting to " + host + ":" + port + "...", new Color(21, 101, 192));
+        setStatus("Connecting to " + host + ":" + port + "...", UIColors.INFO_BLUE);
         setFormEnabled(false);
 
         boolean useTls = chkTls.isSelected();
@@ -264,7 +430,7 @@ public final class LoginFrame extends JFrame {
                 ReplyMessage reply = future.get(5, TimeUnit.SECONDS);
                 if (reply instanceof LoginOkReply ok) {
                     SwingUtilities.invokeLater(() -> {
-                        setStatus("Login successful! Loading cinema...", new Color(46, 125, 50));
+                        setStatus("Login successful! Loading cinema...", UIColors.SUCCESS_GREEN);
                         dispose();
                         BookingFrame bookingFrame = new BookingFrame(activeClient, ok.username(), ok.userId(), ProtocolConstants.DEFAULT_SHOW_ID, ok.role());
                         bookingFrame.initialize();
@@ -273,13 +439,13 @@ public final class LoginFrame extends JFrame {
                 } else if (reply instanceof LoginFailedReply failed) {
                     activeClient.disconnect();
                     SwingUtilities.invokeLater(() -> {
-                        setStatus("Login failed: " + failed.message(), Color.RED);
+                        setStatus("Login failed: " + failed.message(), UIColors.ERROR_RED);
                         setFormEnabled(true);
                     });
                 } else {
                     activeClient.disconnect();
                     SwingUtilities.invokeLater(() -> {
-                        setStatus("Unexpected server response: " + reply.getType(), Color.RED);
+                        setStatus("Unexpected server response: " + reply.getType(), UIColors.ERROR_RED);
                         setFormEnabled(true);
                     });
                 }
@@ -288,7 +454,7 @@ public final class LoginFrame extends JFrame {
                     client.disconnect();
                 }
                 SwingUtilities.invokeLater(() -> {
-                    setStatus((useTls ? "Secure connection/login failed: " : "Connection/login failed: ") + e.getMessage(), Color.RED);
+                    setStatus((useTls ? "Secure connection/login failed: " : "Connection/login failed: ") + e.getMessage(), UIColors.ERROR_RED);
                     setFormEnabled(true);
                 });
             }
@@ -300,7 +466,7 @@ public final class LoginFrame extends JFrame {
 
     private void discoverServers() {
         btnDiscover.setEnabled(false);
-        setStatus("Searching for SeatSync servers on the local network...", new Color(21, 101, 192));
+        setStatus("Searching for SeatSync servers on the local network...", UIColors.INFO_BLUE);
         Thread discoveryThread = new Thread(() -> {
             try {
                 List<DiscoveryResponse> discovered = UdpDiscoveryProbe.discoverAll(
@@ -308,24 +474,24 @@ public final class LoginFrame extends JFrame {
                 SwingUtilities.invokeLater(() -> {
                     btnDiscover.setEnabled(true);
                     if (discovered.isEmpty()) {
-                        setStatus("No server discovered. Enter its address and port manually.", Color.RED);
+                        setStatus("No server discovered. Enter its address and port manually.", UIColors.ERROR_RED);
                         return;
                     }
                     String[] choices = discovered.stream()
                         .map(server -> server.serverIp() + ":" + server.tcpPort()
                             + (server.tlsRequired() ? " (TLS required, port " + server.tlsPort() + ")" : " (TLS optional)"))
                         .toArray(String[]::new);
-                    Object choice = javax.swing.JOptionPane.showInputDialog(this,
+                    Object choice = JOptionPane.showInputDialog(this,
                         "Select a discovered server:", "SeatSync Server Discovery",
-                        javax.swing.JOptionPane.QUESTION_MESSAGE, null, choices, choices[0]);
+                        JOptionPane.QUESTION_MESSAGE, null, choices, choices[0]);
                     if (choice == null) {
-                        setStatus("Discovery complete. You can enter an address manually.", new Color(100, 116, 139));
+                        setStatus("Discovery complete. You can enter an address manually.", UIColors.TEXT_SECONDARY);
                         return;
                     }
                     int index = java.util.Arrays.asList(choices).indexOf(choice.toString());
                     DiscoveryResponse selected = discovered.get(index);
                     if (selected.tlsRequired() && (selected.tlsPort() < 1 || selected.tlsPort() > 65535)) {
-                        setStatus("Discovered server requires TLS but advertised an invalid TLS port.", Color.RED);
+                        setStatus("Discovered server requires TLS but advertised an invalid TLS port.", UIColors.ERROR_RED);
                         return;
                     }
                     txtHost.setText(selected.serverIp());
@@ -337,12 +503,12 @@ public final class LoginFrame extends JFrame {
                     chkTls.setEnabled(!discoveryRequiresTls);
                     updateDiscoveredTransport();
                     setStatus("Selected " + selected.serverIp() + ":" + txtPort.getText()
-                        + (discoveryRequiresTls ? " (TLS 1.3 required)" : ""), new Color(46, 125, 50));
+                        + (discoveryRequiresTls ? " (TLS 1.3 required)" : ""), UIColors.SUCCESS_GREEN);
                 });
             } catch (IOException e) {
                 SwingUtilities.invokeLater(() -> {
                     btnDiscover.setEnabled(true);
-                    setStatus("Server discovery failed: " + e.getMessage(), Color.RED);
+                    setStatus("Server discovery failed: " + e.getMessage(), UIColors.ERROR_RED);
                 });
             }
         }, "seatsync-udp-discovery");

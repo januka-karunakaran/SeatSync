@@ -19,6 +19,14 @@ import java.awt.Dimension;
 @SuppressWarnings({"serial", "this-escape"})
 public class EmptyStatePanel extends RoundedPanel {
 
+    public EmptyStatePanel(String iconText, String title, String description) {
+        this(iconText, title, description, null, null);
+    }
+
+    public EmptyStatePanel(String title, String description) {
+        this("🔒", title, description, null, null);
+    }
+
     public EmptyStatePanel(String iconText, String title, String description, String actionText, Runnable onAction) {
         super(UISpacing.RADIUS_LARGE, UIColors.PURE_WHITE, UIColors.LIGHT_BORDER, 1);
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));

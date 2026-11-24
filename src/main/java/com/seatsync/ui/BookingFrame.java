@@ -39,6 +39,7 @@ import com.seatsync.common.protocol.reply.LogoutOkReply;
 import com.seatsync.common.protocol.reply.MovieListReply;
 import com.seatsync.common.protocol.reply.NetworkMetricsReply;
 import com.seatsync.ui.assets.ImageResourceManager;
+import com.seatsync.ui.components.EmptyStatePanel;
 import com.seatsync.ui.components.ModernButton;
 import com.seatsync.ui.components.MovieCard;
 import com.seatsync.ui.components.RoundedPanel;
@@ -49,6 +50,11 @@ import com.seatsync.ui.theme.UIColors;
 import com.seatsync.ui.theme.UIFonts;
 import com.seatsync.ui.theme.UISpacing;
 import javax.swing.ImageIcon;
+import javax.swing.JDialog;
+import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.JTableHeader;
+import java.awt.Component;
+import java.awt.GraphicsEnvironment;
 import com.seatsync.common.protocol.reply.ServerMetricsReply;
 import com.seatsync.common.protocol.reply.SeatSnapshotReply;
 import com.seatsync.common.protocol.reply.ShowListReply;
@@ -486,66 +492,238 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     }
 
     private JPanel createShowsPage() {
-        JPanel page = new JPanel(new BorderLayout(8, 8));
-        showRows = tableModel("Show ID", "Title", "Start time", "Venue", "Available", "Capacity");
+        JPanel page = new JPanel(new BorderLayout(12, 12));
+        page.setBackground(UIColors.SOFT_WHITE);
+        page.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+
+        showRows = tableModel("Show ID", "Movie Title", "Start Time", "Auditorium", "Available", "Total Capacity");
         showsTable = new JTable(showRows);
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        styleTable(showsTable);
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        actions.setOpaque(false);
         actions.add(actionButton("Refresh shows", this::requestShows));
-        actions.add(actionButton("Open selected show", this::openSelectedShow));
+
+        ModernButton btnOpenShow = new ModernButton("Open Selected Show", ModernButton.Variant.PRIMARY);
+        btnOpenShow.setFont(UIFonts.custom(Font.BOLD, 12));
+        btnOpenShow.addActionListener(e -> openSelectedShow());
+        actions.add(btnOpenShow);
+
         if (role == UserRole.ADMIN) {
             actions.add(actionButton("Create show", this::showCreateShowDialog));
             actions.add(actionButton("Disable show", this::disableSelectedShow));
         }
-        page.add(actions, BorderLayout.NORTH);
-        page.add(new JScrollPane(showsTable), BorderLayout.CENTER);
+
+        SectionHeader header = new SectionHeader(
+            "Cinema Showtimes & Screenings",
+            "Browse active screenings across cinema auditoriums and select a show to reserve seats",
+            actions
+        );
+        page.add(header, BorderLayout.NORTH);
+
+        RoundedPanel tableCard = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.PURE_WHITE, UIColors.LIGHT_BORDER, 1, true);
+        tableCard.setLayout(new BorderLayout());
+        tableCard.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        JScrollPane scrollPane = new JScrollPane(showsTable);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.getViewport().setBackground(UIColors.PURE_WHITE);
+        tableCard.add(scrollPane, BorderLayout.CENTER);
+
+        page.add(tableCard, BorderLayout.CENTER);
+
         lblShowState = new JLabel("Loading shows...");
+        lblShowState.setFont(UIFonts.CAPTION);
+        lblShowState.setForeground(UIColors.TEXT_SECONDARY);
         page.add(lblShowState, BorderLayout.SOUTH);
         return page;
     }
 
     private JPanel createTicketsPage() {
-        JPanel page = new JPanel(new BorderLayout(8, 8));
+        JPanel page = new JPanel(new BorderLayout(12, 12));
+        page.setBackground(UIColors.SOFT_WHITE);
+        page.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+
         ticketRows = tableModel("Booking ID", "Show", "Seat", "Show time", "Status", "Ticket ID");
         ticketsTable = new JTable(ticketRows);
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        styleTable(ticketsTable);
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        actions.setOpaque(false);
         actions.add(actionButton("Refresh history", this::requestBookingHistory));
-        actions.add(actionButton("View selected ticket", this::viewSelectedTicket));
-        page.add(actions, BorderLayout.NORTH);
-        page.add(new JScrollPane(ticketsTable), BorderLayout.CENTER);
+
+        ModernButton btnViewTicket = new ModernButton("View Digital Pass", ModernButton.Variant.PRIMARY);
+        btnViewTicket.setFont(UIFonts.custom(Font.BOLD, 12));
+        btnViewTicket.addActionListener(e -> viewSelectedTicket());
+        actions.add(btnViewTicket);
+
+        SectionHeader header = new SectionHeader(
+            "My Bookings & Digital Tickets",
+            "Review your active reservations and inspect cryptographically verified cinema admission passes",
+            actions
+        );
+        page.add(header, BorderLayout.NORTH);
+
+        RoundedPanel tableCard = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.PURE_WHITE, UIColors.LIGHT_BORDER, 1, true);
+        tableCard.setLayout(new BorderLayout());
+        tableCard.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        JScrollPane scrollPane = new JScrollPane(ticketsTable);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.getViewport().setBackground(UIColors.PURE_WHITE);
+        tableCard.add(scrollPane, BorderLayout.CENTER);
+
+        page.add(tableCard, BorderLayout.CENTER);
+
         lblTicketState = new JLabel("No booking history loaded.");
+        lblTicketState.setFont(UIFonts.CAPTION);
+        lblTicketState.setForeground(UIColors.TEXT_SECONDARY);
         page.add(lblTicketState, BorderLayout.SOUTH);
         return page;
     }
 
     private JPanel createWaitlistPage() {
-        JPanel page = new JPanel(new BorderLayout(10, 10));
+        JPanel page = new JPanel(new BorderLayout(12, 12));
+        page.setBackground(UIColors.SOFT_WHITE);
+        page.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+
+        SectionHeader header = new SectionHeader(
+            "Show Waitlist & Standby Queue",
+            "Join the automated standby queue for sold-out screenings and receive instant hold allocations"
+        );
+        page.add(header, BorderLayout.NORTH);
+
+        RoundedPanel queueCard = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.PURE_WHITE, UIColors.LIGHT_BORDER, 1, true);
+        queueCard.setLayout(new BoxLayout(queueCard, BoxLayout.Y_AXIS));
+        queueCard.setBorder(BorderFactory.createEmptyBorder(30, 36, 30, 36));
+
+        JLabel iconLabel = new JLabel("🎟️");
+        iconLabel.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 48));
+        iconLabel.setAlignmentX(CENTER_ALIGNMENT);
+
         lblWaitlistStatus = new JLabel("Select a show to view or join its waitlist.", SwingConstants.CENTER);
-        lblWaitlistStatus.setFont(new Font("Segoe UI", Font.BOLD, 16));
-        JPanel actions = new JPanel(new FlowLayout());
-        actions.add(actionButton("Check status", this::requestWaitlistStatus));
-        actions.add(actionButton("Join waitlist", this::joinWaitlist));
-        actions.add(actionButton("Leave waitlist", this::leaveWaitlist));
-        page.add(lblWaitlistStatus, BorderLayout.CENTER);
-        page.add(actions, BorderLayout.SOUTH);
+        lblWaitlistStatus.setFont(UIFonts.TITLE_MEDIUM);
+        lblWaitlistStatus.setForeground(UIColors.TEXT_DARK);
+        lblWaitlistStatus.setAlignmentX(CENTER_ALIGNMENT);
+
+        JLabel explanation = new JLabel("<html><center><p style='width:420px; color:#6C6A78; font-size:12px; line-height:1.5;'>"
+            + "When seats in high demand sell out or holds expire, SeatSync's FIFO standby engine automatically "
+            + "promotes queued patrons and reserves a temporary 2-minute booking window."
+            + "</p></center></html>", SwingConstants.CENTER);
+        explanation.setAlignmentX(CENTER_ALIGNMENT);
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 0));
+        actions.setOpaque(false);
+        actions.setAlignmentX(CENTER_ALIGNMENT);
+
+        ModernButton btnCheck = new ModernButton("Check Status", ModernButton.Variant.SECONDARY);
+        btnCheck.addActionListener(e -> requestWaitlistStatus());
+
+        ModernButton btnJoin = new ModernButton("Join Standby Queue", ModernButton.Variant.PRIMARY);
+        btnJoin.addActionListener(e -> joinWaitlist());
+
+        ModernButton btnLeave = new ModernButton("Leave Queue", ModernButton.Variant.OUTLINE);
+        btnLeave.addActionListener(e -> leaveWaitlist());
+
+        actions.add(btnCheck);
+        actions.add(btnJoin);
+        actions.add(btnLeave);
+
+        queueCard.add(Box.createVerticalGlue());
+        queueCard.add(iconLabel);
+        queueCard.add(Box.createVerticalStrut(16));
+        queueCard.add(lblWaitlistStatus);
+        queueCard.add(Box.createVerticalStrut(10));
+        queueCard.add(explanation);
+        queueCard.add(Box.createVerticalStrut(24));
+        queueCard.add(actions);
+        queueCard.add(Box.createVerticalGlue());
+
+        page.add(queueCard, BorderLayout.CENTER);
         return page;
     }
 
     private JPanel createAdminPage() {
-        JPanel page = new JPanel(new BorderLayout(8, 8));
+        JPanel page = new JPanel(new BorderLayout(12, 12));
+        page.setBackground(UIColors.SOFT_WHITE);
+        page.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        actions.setOpaque(false);
+        actions.add(actionButton("Refresh metrics", this::requestAdminMetrics));
+        actions.add(actionButton("Audit logs", this::requestAuditLogs));
+        actions.add(actionButton("List bookings", this::requestAdminBookings));
+
+        SectionHeader header = new SectionHeader(
+            "Administrator Telemetry & Operations",
+            "Monitor non-blocking Java NIO socket metrics, security audit trails, and master booking registry",
+            actions
+        );
+        page.add(header, BorderLayout.NORTH);
+
+        if (role != UserRole.ADMIN) {
+            EmptyStatePanel restricted = new EmptyStatePanel("Administrator Access Required", "This console requires elevated administrative privileges to view telemetry and audit records.");
+            page.add(restricted, BorderLayout.CENTER);
+            return page;
+        }
+
+        RoundedPanel consoleCard = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.DEEP_CHARCOAL, UIColors.DARK_BORDER, 1, true);
+        consoleCard.setLayout(new BorderLayout());
+        consoleCard.setBorder(BorderFactory.createEmptyBorder(12, 14, 12, 14));
+
         adminDashboard = new JTextArea();
         adminDashboard.setEditable(false);
         adminDashboard.setLineWrap(true);
         adminDashboard.setWrapStyleWord(true);
-        adminDashboard.setText(role != UserRole.ADMIN
-            ? "Administrator role required."
-            : "Admin network dashboard. Select Refresh to load live metrics and audit records.");
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        actions.add(actionButton("Refresh metrics", this::requestAdminMetrics));
-        actions.add(actionButton("Audit logs", this::requestAuditLogs));
-        actions.add(actionButton("List bookings", this::requestAdminBookings));
-        page.add(actions, BorderLayout.NORTH);
-        page.add(new JScrollPane(adminDashboard), BorderLayout.CENTER);
+        adminDashboard.setFont(new Font("Consolas", Font.PLAIN, 12));
+        adminDashboard.setBackground(UIColors.DEEP_CHARCOAL);
+        adminDashboard.setForeground(new Color(0xD8, 0xD0, 0xF2));
+        adminDashboard.setCaretColor(Color.WHITE);
+        adminDashboard.setText("SeatSync Administrator Telemetry Console\n"
+            + "Press 'Refresh metrics' to query live non-blocking NIO socket metrics.\n"
+            + "Press 'Audit logs' to inspect security access events.\n"
+            + "Press 'List bookings' to review all system reservations.\n");
+
+        JScrollPane scrollPane = new JScrollPane(adminDashboard);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.getViewport().setBackground(UIColors.DEEP_CHARCOAL);
+        consoleCard.add(scrollPane, BorderLayout.CENTER);
+
+        page.add(consoleCard, BorderLayout.CENTER);
         return page;
+    }
+
+    private static void styleTable(JTable table) {
+        table.setFont(UIFonts.BODY);
+        table.setRowHeight(34);
+        table.setShowVerticalLines(false);
+        table.setShowHorizontalLines(true);
+        table.setGridColor(UIColors.LIGHT_BORDER);
+        table.setSelectionBackground(new Color(0xD8, 0xD0, 0xF2));
+        table.setSelectionForeground(UIColors.TEXT_DARK);
+        table.setFillsViewportHeight(true);
+        table.setBackground(UIColors.PURE_WHITE);
+
+        JTableHeader header = table.getTableHeader();
+        header.setFont(UIFonts.BODY_BOLD);
+        header.setBackground(UIColors.DEEP_CHARCOAL);
+        header.setForeground(UIColors.PURE_WHITE);
+        header.setPreferredSize(new Dimension(0, 36));
+        header.setReorderingAllowed(false);
+
+        DefaultTableCellRenderer renderer = new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable tbl, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
+                super.getTableCellRendererComponent(tbl, value, isSelected, hasFocus, row, col);
+                setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 10));
+                if (!isSelected) {
+                    setBackground(row % 2 == 0 ? UIColors.PURE_WHITE : new Color(0xFA, 0xFA, 0xFD));
+                    setForeground(UIColors.TEXT_DARK);
+                }
+                return this;
+            }
+        };
+        table.setDefaultRenderer(Object.class, renderer);
     }
 
     private static DefaultTableModel tableModel(String... columns) {
@@ -798,6 +976,9 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     }
 
     private void requestShows() {
+        if (tcpClient == null) {
+            return;
+        }
         lblShowState.setText("Loading shows...");
         sendRequestAsync(new GetShowsRequest(tcpClient.nextRequestId()), "GET_SHOWS",
             () -> lblShowState.setText("Show request failed. Check the connection and retry."),
@@ -849,6 +1030,9 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     }
 
     private void requestBookingHistory() {
+        if (tcpClient == null) {
+            return;
+        }
         lblTicketState.setText("Loading booking history...");
         sendRequestAsync(new GetBookingHistoryRequest(tcpClient.nextRequestId(), 0, 20), "GET_BOOKING_HISTORY",
             () -> lblTicketState.setText("History request failed. Check the connection and retry."),
@@ -878,17 +1062,118 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         sendRequestAsync(new GetTicketRequest(tcpClient.nextRequestId(), ticketId), "GET_TICKET", () -> {},
             reply -> {
                 if (reply instanceof TicketReply result) {
-                    var ticket = result.ticket();
-                    JOptionPane.showMessageDialog(this,
-                        "Ticket: " + ticket.ticketId() + "\nBooking: " + ticket.bookingId()
-                            + "\nShow: " + ticket.showId() + "\nSeat: " + ticket.seatId()
-                            + "\nIssued: " + java.time.Instant.ofEpochMilli(ticket.issuedAt())
-                            + "\nVerification: " + ticket.verificationHash(),
-                        "Digital Ticket", JOptionPane.INFORMATION_MESSAGE);
+                    showDigitalTicketDialog(result.ticket());
                 } else {
                     appendLog("[ERROR] Ticket request returned " + reply.getType());
                 }
             });
+    }
+
+    private void showDigitalTicketDialog(com.seatsync.common.model.Ticket ticket) {
+        if (GraphicsEnvironment.isHeadless()) {
+            return;
+        }
+        JDialog dialog = new JDialog(this, "Digital Cinema Admission Pass", true);
+        dialog.setSize(420, 560);
+        dialog.setLocationRelativeTo(this);
+        dialog.setResizable(false);
+
+        JPanel content = new JPanel();
+        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+        content.setBackground(UIColors.SOFT_WHITE);
+        content.setBorder(BorderFactory.createEmptyBorder(20, 24, 20, 24));
+
+        RoundedPanel passCard = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.PURE_WHITE, UIColors.LIGHT_BORDER, 1, true);
+        passCard.setLayout(new BoxLayout(passCard, BoxLayout.Y_AXIS));
+        passCard.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+
+        JPanel brandRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 0));
+        brandRow.setOpaque(false);
+        JLabel logo = new JLabel(new ImageIcon(ImageResourceManager.getSeatSyncLogo(28, 28)));
+        JLabel brand = new JLabel("SeatSync Cinema Pass");
+        brand.setFont(UIFonts.TITLE_SMALL);
+        brand.setForeground(UIColors.TEXT_DARK);
+        brandRow.add(logo);
+        brandRow.add(brand);
+
+        StatusBadge verifiedBadge = new StatusBadge("CRYPTOGRAPHICALLY VERIFIED", StatusBadge.Type.SUCCESS);
+        verifiedBadge.setAlignmentX(CENTER_ALIGNMENT);
+
+        RoundedPanel seatBox = new RoundedPanel(UISpacing.RADIUS_MEDIUM, UIColors.DEEP_CHARCOAL, UIColors.DEEP_CHARCOAL, 1, false);
+        seatBox.setLayout(new BoxLayout(seatBox, BoxLayout.Y_AXIS));
+        seatBox.setBorder(BorderFactory.createEmptyBorder(12, 16, 12, 16));
+        seatBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 75));
+        seatBox.setAlignmentX(CENTER_ALIGNMENT);
+
+        JLabel lblSeatWord = new JLabel("RESERVED SEAT");
+        lblSeatWord.setFont(UIFonts.BADGE);
+        lblSeatWord.setForeground(UIColors.LAVENDER_PRIMARY);
+        lblSeatWord.setAlignmentX(CENTER_ALIGNMENT);
+
+        JLabel lblSeatValue = new JLabel(ticket.seatId());
+        lblSeatValue.setFont(new Font("Segoe UI", Font.BOLD, 28));
+        lblSeatValue.setForeground(UIColors.PURE_WHITE);
+        lblSeatValue.setAlignmentX(CENTER_ALIGNMENT);
+
+        seatBox.add(lblSeatWord);
+        seatBox.add(Box.createVerticalStrut(2));
+        seatBox.add(lblSeatValue);
+
+        JPanel detailsGrid = new JPanel(new GridLayout(4, 1, 0, 8));
+        detailsGrid.setOpaque(false);
+        detailsGrid.setBorder(BorderFactory.createEmptyBorder(14, 4, 14, 4));
+        detailsGrid.add(createInfoRow("Ticket ID:", ticket.ticketId()));
+        detailsGrid.add(createInfoRow("Booking ID:", ticket.bookingId()));
+        detailsGrid.add(createInfoRow("Cinema Show:", ticket.showId()));
+        String issuedStr = java.time.Instant.ofEpochMilli(ticket.issuedAt()).toString();
+        if (issuedStr.length() >= 19) {
+            issuedStr = issuedStr.substring(0, 19).replace('T', ' ');
+        }
+        detailsGrid.add(createInfoRow("Issued At:", issuedStr));
+
+        JPanel barcodePanel = new JPanel();
+        barcodePanel.setLayout(new BoxLayout(barcodePanel, BoxLayout.Y_AXIS));
+        barcodePanel.setOpaque(false);
+        barcodePanel.setAlignmentX(CENTER_ALIGNMENT);
+
+        JLabel barcodeLines = new JLabel("||| | ||||| || |||||| | |||| ||| |||||||", SwingConstants.CENTER);
+        barcodeLines.setFont(new Font("Monospaced", Font.BOLD, 18));
+        barcodeLines.setForeground(UIColors.TEXT_DARK);
+        barcodeLines.setAlignmentX(CENTER_ALIGNMENT);
+
+        String hash = ticket.verificationHash();
+        if (hash != null && hash.length() > 24) {
+            hash = hash.substring(0, 24) + "...";
+        }
+        JLabel hashLabel = new JLabel("SHA-256: " + (hash != null ? hash : "N/A"), SwingConstants.CENTER);
+        hashLabel.setFont(UIFonts.CAPTION);
+        hashLabel.setForeground(UIColors.TEXT_MUTED);
+        hashLabel.setAlignmentX(CENTER_ALIGNMENT);
+
+        barcodePanel.add(barcodeLines);
+        barcodePanel.add(Box.createVerticalStrut(4));
+        barcodePanel.add(hashLabel);
+
+        passCard.add(brandRow);
+        passCard.add(Box.createVerticalStrut(10));
+        passCard.add(verifiedBadge);
+        passCard.add(Box.createVerticalStrut(14));
+        passCard.add(seatBox);
+        passCard.add(Box.createVerticalStrut(10));
+        passCard.add(detailsGrid);
+        passCard.add(Box.createVerticalStrut(10));
+        passCard.add(barcodePanel);
+
+        ModernButton btnClose = new ModernButton("Close Pass", ModernButton.Variant.PRIMARY);
+        btnClose.setAlignmentX(CENTER_ALIGNMENT);
+        btnClose.addActionListener(e -> dialog.dispose());
+
+        content.add(passCard);
+        content.add(Box.createVerticalStrut(12));
+        content.add(btnClose);
+
+        dialog.setContentPane(content);
+        dialog.setVisible(true);
     }
 
     private void joinWaitlist() {
@@ -908,7 +1193,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     }
 
     private void requestWaitlistStatus() {
-        if (lblWaitlistStatus == null) {
+        if (tcpClient == null || lblWaitlistStatus == null) {
             return;
         }
         sendRequestAsync(new GetWaitlistStatusRequest(tcpClient.nextRequestId(), showId), "GET_WAITLIST_STATUS", () -> {},
@@ -925,7 +1210,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     }
 
     private void requestAdminMetrics() {
-        if (role != UserRole.ADMIN) {
+        if (tcpClient == null || role != UserRole.ADMIN) {
             return;
         }
         sendRequestAsync(new GetServerMetricsRequest(tcpClient.nextRequestId()), "GET_SERVER_METRICS", () -> {},
@@ -947,7 +1232,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     }
 
     private void requestAuditLogs() {
-        if (role != UserRole.ADMIN) {
+        if (tcpClient == null || role != UserRole.ADMIN) {
             return;
         }
         sendRequestAsync(new AdminGetAuditLogsRequest(tcpClient.nextRequestId(), 20), "ADMIN_GET_AUDIT_LOGS", () -> {},
@@ -962,7 +1247,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     }
 
     private void requestAdminBookings() {
-        if (role != UserRole.ADMIN) {
+        if (tcpClient == null || role != UserRole.ADMIN) {
             return;
         }
         sendRequestAsync(new AdminListBookingsRequest(tcpClient.nextRequestId(), showId, 0, 20),
@@ -1333,6 +1618,9 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     // =========================================================================
 
     private void requestSeatSnapshot() {
+        if (tcpClient == null) {
+            return;
+        }
         GetSeatsRequest request = new GetSeatsRequest(tcpClient.nextRequestId(), showId);
         appendLog("Requesting seat snapshot for " + showId + "...");
         lblSeatState.setText("Loading seats...");

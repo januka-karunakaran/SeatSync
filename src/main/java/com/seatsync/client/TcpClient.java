@@ -200,7 +200,7 @@ public class TcpClient implements AutoCloseable {
         disconnectInternal("Client requested normal disconnect");
     }
 
-    private void disconnectInternal(String reason) {
+    private synchronized void disconnectInternal(String reason) {
         if (!connected.compareAndSet(true, false)) {
             return;
         }

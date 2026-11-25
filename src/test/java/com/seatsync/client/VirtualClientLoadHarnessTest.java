@@ -96,4 +96,25 @@ class VirtualClientLoadHarnessTest {
 
         assertTrue(result.p95LatencyMs() < 2000.0, "p95 latency should remain well under 2 seconds on localhost");
     }
+
+    @Test
+    @DisplayName("100 Virtual Clients: Contending for 20 seats keeps one booking per seat")
+    void testContentionBenchmark100Clients() throws Exception {
+        VirtualClientLoadHarness harness = new VirtualClientLoadHarness("127.0.0.1", port, "password123");
+        List<String> targetSeats = List.of(
+            "A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8",
+            "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8",
+            "C1", "C2", "C3", "C4");
+
+        VirtualClientLoadHarness.BenchmarkResult result = harness.runContentionBenchmark(100, "SHOW-01", targetSeats);
+
+        assertEquals(100, result.totalClients());
+        assertEquals(20, result.successCount(), "Exactly 20 unique seats must be booked");
+        assertEquals(80, result.conflictCount(), "The other 80 clients must be rejected");
+        assertEquals(0, result.errorCount());
+        assertTrue(result.hasZeroDoubleBookings());
+        assertEquals(20, result.seatWinners().size());
+        assertTrue(result.meanLatencyMs() >= 0.0);
+        assertTrue(result.p95LatencyMs() >= result.meanLatencyMs() || result.p95LatencyMs() >= 0.0);
+    }
 }

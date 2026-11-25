@@ -8,7 +8,9 @@ import com.seatsync.common.contracts.*;
 import com.seatsync.common.model.*;
 import com.seatsync.common.protocol.*;
 import com.seatsync.common.protocol.reply.*;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.logging.Logger;
 
 public final class BookingRequestProcessor implements RequestDispatcher {
@@ -122,6 +124,7 @@ public final class BookingRequestProcessor implements RequestDispatcher {
                 subscriptions.unsubscribe(context.getSessionId(), showId);
                 yield new com.seatsync.common.protocol.reply.UnsubscribeOkReply(id, showId, "Unsubscribed from events for show " + showId);
             }
+            case "VERIFY_TICKET" -> verifyTicketReply(frame, id, user.get());
             case "GET_TICKET" -> {
                 String ticketId = required(frame, "ticketId");
                 if (ticketService == null) {
@@ -141,6 +144,7 @@ public final class BookingRequestProcessor implements RequestDispatcher {
                 var history = historyService.getBookingHistory(user.get(), pageNumber, pageSize);
                 yield new com.seatsync.common.protocol.reply.BookingHistoryReply(id, history);
             }
+            case "HOLD_SEATS" -> holdSeatsReply(frame, id, user.get());
             case "HOLD_SEAT", "RELEASE_HOLD", "CONFIRM_HOLD" -> holdReply(type, frame, id, user.get());
             case "JOIN_WAITLIST", "LEAVE_WAITLIST", "GET_WAITLIST_STATUS" ->
                 waitlistReply(type, id, user.get(), required(frame, "showId"));
@@ -189,6 +193,46 @@ public final class BookingRequestProcessor implements RequestDispatcher {
         return service.status(user, showId).<ReplyMessage>map(status ->
             new WaitlistStatusReply(id, showId, status.position(), status.totalWaitlistSize()))
             .orElseGet(() -> new ErrorReply(id, ErrorCode.SHOW_NOT_FOUND, "Unknown show"));
+    }
+
+    private ReplyMessage verifyTicketReply(JsonNode frame, String id, String user) {
+        if (ticketService == null) {
+            return new ErrorReply(id, ErrorCode.UNKNOWN_REQUEST_TYPE, "Ticket service unavailable");
+        }
+        String ticketId = required(frame, "ticketId");
+        String hash = required(frame, "verificationHash");
+        if (ticketService.getTicket(ticketId, user).isEmpty()) {
+            return new ErrorReply(id, ErrorCode.TICKET_NOT_FOUND, "Ticket not found or access denied");
+        }
+        return new TicketVerifiedReply(id, ticketId, ticketService.verifyTicket(ticketId, hash));
+    }
+
+    private ReplyMessage holdSeatsReply(JsonNode frame, String id, String user) {
+        if (!(reservations instanceof HoldService service)) {
+            return new ErrorReply(id, ErrorCode.UNKNOWN_REQUEST_TYPE, "Holds unavailable");
+        }
+        JsonNode seats = frame.get("seatIds");
+        if (seats == null || !seats.isArray() || seats.isEmpty() || seats.size() > 8) {
+            throw new InvalidFrame();
+        }
+        List<String> seatIds = new ArrayList<>();
+        for (JsonNode seat : seats) {
+            if (seat == null || !seat.isTextual() || seat.textValue().isBlank()) {
+                throw new InvalidFrame();
+            }
+            seatIds.add(seat.textValue());
+        }
+        var duration = frame.get("holdDurationSeconds");
+        if (duration != null && (!duration.isIntegralNumber() || !duration.canConvertToInt())) {
+            throw new InvalidFrame();
+        }
+        long seconds = duration == null ? 120 : duration.intValue();
+        var result = service.holdSeats(user, required(frame, "showId"), seatIds, seconds * 1000L);
+        if (!result.success()) {
+            String seatId = result.seatIds().isEmpty() ? null : result.seatIds().get(0);
+            return new HoldRejectedReply(id, result.showId(), seatId, result.errorCode(), result.message());
+        }
+        return new HoldSeatsOkReply(id, result.showId(), result.seatIds(), result.holdIds(), result.expiresAt(), result.message());
     }
 
     private ReplyMessage holdReply(String type, JsonNode frame, String id, String user) {

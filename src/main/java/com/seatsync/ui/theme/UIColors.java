@@ -21,6 +21,9 @@ public final class UIColors {
 
     // Light Surfaces & Accents (FilmTIX-inspired clean lightness)
     public static final Color SOFT_WHITE       = new Color(0xFA, 0xF9, 0xFC); // #FAF9FC
+    public static final Color CANVAS           = new Color(0xF6, 0xF1, 0xEA); // Warm paper, not stark white
+    public static final Color ACCENT           = new Color(0xE1, 0x1D, 0x48); // Cinema rose
+    public static final Color ACCENT_DARK      = new Color(0x9F, 0x12, 0x39);
     public static final Color PURE_WHITE       = new Color(0xFF, 0xFF, 0xFF); // #FFFFFF
     public static final Color SURFACE_LIGHT    = new Color(0xF2, 0xF1, 0xF7); // #F2F1F7
     public static final Color LIGHT_BORDER     = new Color(0xE8, 0xE6, 0xED); // #E8E6ED

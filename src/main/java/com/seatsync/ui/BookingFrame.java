@@ -1,7 +1,9 @@
 package com.seatsync.ui;
 
 import com.seatsync.client.ClientMessageHandler;
+import com.seatsync.client.SessionRecovery;
 import com.seatsync.client.TcpClient;
+import com.seatsync.reliability.ReconnectCoordinator;
 import com.seatsync.common.model.ProtocolConstants;
 import com.seatsync.common.model.AuditoriumLayout;
 import com.seatsync.common.model.BookingHistoryItem;
@@ -33,6 +35,7 @@ import com.seatsync.common.protocol.reply.ConfirmOkReply;
 import com.seatsync.common.protocol.reply.ConfirmRejectedReply;
 import com.seatsync.common.protocol.reply.ErrorReply;
 import com.seatsync.common.protocol.reply.HoldOkReply;
+import com.seatsync.common.protocol.reply.HoldSeatsOkReply;
 import com.seatsync.common.protocol.reply.HoldRejectedReply;
 import com.seatsync.common.protocol.reply.HoldReleasedOkReply;
 import com.seatsync.common.protocol.reply.LogoutOkReply;
@@ -41,6 +44,7 @@ import com.seatsync.common.protocol.reply.NetworkMetricsReply;
 import com.seatsync.ui.assets.ImageResourceManager;
 import com.seatsync.ui.components.EmptyStatePanel;
 import com.seatsync.ui.components.ModernButton;
+import com.seatsync.ui.components.NoticeDialog;
 import com.seatsync.ui.components.MovieCard;
 import com.seatsync.ui.components.RoundedPanel;
 import com.seatsync.ui.components.SectionHeader;
@@ -60,6 +64,7 @@ import com.seatsync.common.protocol.reply.SeatSnapshotReply;
 import com.seatsync.common.protocol.reply.ShowListReply;
 import com.seatsync.common.protocol.reply.TicketReply;
 import com.seatsync.common.protocol.reply.WaitlistJoinedOkReply;
+import com.seatsync.common.protocol.reply.WaitlistLeftOkReply;
 import com.seatsync.common.protocol.reply.WaitlistStatusReply;
 import com.seatsync.common.protocol.request.AdminCreateMovieRequest;
 import com.seatsync.common.protocol.request.AdminCreateShowRequest;
@@ -78,6 +83,8 @@ import com.seatsync.common.protocol.request.GetShowsRequest;
 import com.seatsync.common.protocol.request.GetTicketRequest;
 import com.seatsync.common.protocol.request.GetWaitlistStatusRequest;
 import com.seatsync.common.protocol.request.HoldSeatRequest;
+import com.seatsync.common.protocol.request.HoldSeatsRequest;
+import com.seatsync.common.protocol.request.LoginRequest;
 import com.seatsync.common.protocol.request.JoinWaitlistRequest;
 import com.seatsync.common.protocol.request.LeaveWaitlistRequest;
 import com.seatsync.common.protocol.request.LogoutRequest;
@@ -85,6 +92,7 @@ import com.seatsync.common.protocol.request.ReleaseHoldRequest;
 import com.seatsync.common.protocol.request.SubscribeEventsRequest;
 
 import javax.swing.BorderFactory;
+import javax.swing.JComponent;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JFrame;
@@ -92,7 +100,6 @@ import javax.swing.JLabel;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.Timer;
-import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
@@ -113,6 +120,7 @@ import java.awt.Image;
 import java.io.IOException;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.Map;
 import java.util.List;
 import java.util.UUID;
@@ -121,6 +129,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 
 /**
  * Main application window for SeatSync desktop client.
@@ -144,7 +156,12 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     private final transient TcpClient tcpClient;
     private final String username;
     private final String userId;
+    private final String sessionPassword;
+    private final transient ReconnectCoordinator reconnectCoordinator = new ReconnectCoordinator();
+    private final transient AtomicBoolean recoveryRunning = new AtomicBoolean(false);
+    private volatile boolean keepSession = true;
     private volatile String showId;
+    private final transient Map<String, ShowSummary> showsById = new ConcurrentHashMap<>();
     private final UserRole role;
     private final transient ExecutorService networkExecutor = Executors.newSingleThreadExecutor(task -> {
         Thread thread = new Thread(task, "seatsync-ui-network");
@@ -158,7 +175,13 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     // UI Components
     private transient SeatGridPanel seatGridPanel;
     private transient JLabel lblSelectedSeat;
+    private transient JLabel lblSeatGuide;
+    private transient JComponent priceBox;
+    private transient JComponent holdBox;
     private transient JLabel lblConnectionStatus;
+    private transient JLabel lblHeaderShow;
+    private transient JLabel lblSeatVenue;
+    private transient JLabel lblSeatWhen;
     private transient ThemedButton btnBook;
     private transient ThemedButton btnCancel;
     private transient ThemedButton btnRefresh;
@@ -170,7 +193,9 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     private transient JLabel lblHomeHeld;
     private transient JLabel lblHomeStatus;
     private transient JLabel lblShowTitle;
+    private transient NavigationPanel navigation;
     private transient CardLayout pageLayout;
+    private boolean showtimeChosen;
     private transient JPanel pageCards;
     private transient DefaultTableModel movieRows;
     private transient DefaultTableModel showRows;
@@ -191,6 +216,8 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     private transient JLabel lblHoldCountdown;
     private transient Timer holdTimer;
     private volatile String activeHoldId;
+    private final transient java.util.List<String> activeHoldIds = new java.util.concurrent.CopyOnWriteArrayList<>();
+    private final transient java.util.List<String> activeHeldSeats = new java.util.concurrent.CopyOnWriteArrayList<>();
     private volatile String activeHoldSeatId;
     private volatile long activeHoldExpiresAt;
     private final transient Map<String, Long> seatHoldExpiries = new ConcurrentHashMap<>();
@@ -241,10 +268,16 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     }
 
     public BookingFrame(TcpClient tcpClient, String username, String userId, String showId, UserRole role) {
+        this(tcpClient, username, userId, showId, role, null);
+    }
+
+    public BookingFrame(TcpClient tcpClient, String username, String userId, String showId, UserRole role,
+            String sessionPassword) {
         super("SeatSync - Cinema Seat Reservation (" + username + ")");
         this.tcpClient = tcpClient;
         this.username = username;
         this.userId = userId;
+        this.sessionPassword = sessionPassword;
         this.showId = (showId != null && !showId.isBlank()) ? showId : ProtocolConstants.DEFAULT_SHOW_ID;
         this.role = role == null ? UserRole.CUSTOMER : role;
     }
@@ -260,10 +293,17 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
             requestSeatSnapshot();
             requestMovies();
             requestShows();
+            requestBookingHistory();
             subscribeToSelectedShow();
         }
         holdTimer = new Timer(1000, event -> updateHoldCountdown());
         holdTimer.start();
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent event) {
+                keepSession = false;
+            }
+        });
     }
 
     private void initUI() {
@@ -273,16 +313,20 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         setLocationRelativeTo(null);
 
         JPanel contentPane = new JPanel(new BorderLayout());
+        contentPane.setBackground(UIColors.CANVAS);
         setContentPane(contentPane);
         contentPane.add(createHeaderPanel(), BorderLayout.NORTH);
 
-        NavigationPanel navigation = new NavigationPanel(this::showPage);
+        navigation = new NavigationPanel(this::showPage);
         if (role != UserRole.ADMIN) {
-            navigation.getNavigationButton("Admin").setVisible(false);
+            navigation.setPageVisible("Admin", false);
         }
+        navigation.setPageEnabled("Seat Map", false);
         contentPane.add(navigation, BorderLayout.WEST);
         pageLayout = new CardLayout();
         pageCards = new JPanel(pageLayout);
+        pageCards.setBackground(UIColors.CANVAS);
+        pageCards.setOpaque(true);
         pageCards.setBorder(BorderFactory.createEmptyBorder(18, 20, 18, 20));
         pageCards.add(createHomePage(), "Home");
         pageCards.add(createMoviesPage(), "Movies");
@@ -309,13 +353,13 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
 
     private JPanel createSeatMapPage() {
         JPanel page = new JPanel(new BorderLayout(12, 12));
-        page.setBackground(UIColors.SOFT_WHITE);
+        page.setBackground(UIColors.CANVAS);
         page.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
 
         SectionHeader header = new SectionHeader(
-            "Cinema Seat Reservation",
-            "Select an available seat to place a hold or book directly in real time",
-            actionButton("Refresh Seats", this::requestSeatSnapshot)
+            "Choose your seat",
+            "Teal seats are open. Blue seats are already yours.",
+            actionButton("Refresh seats", this::requestSeatSnapshot)
         );
         page.add(header, BorderLayout.NORTH);
 
@@ -339,16 +383,24 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
 
         lblSeatMapGenre = new JLabel("Feature Presentation");
         lblSeatMapGenre.setFont(UIFonts.BADGE);
-        lblSeatMapGenre.setForeground(UIColors.DEEP_PURPLE);
+        lblSeatMapGenre.setForeground(UIColors.ACCENT);
         lblSeatMapGenre.setAlignmentX(CENTER_ALIGNMENT);
 
+        lblSeatVenue = new JLabel("Main auditorium", SwingConstants.RIGHT);
+        lblSeatWhen = new JLabel("Choose a showtime", SwingConstants.RIGHT);
+        JLabel priceValue = new JLabel("$12.50", SwingConstants.RIGHT);
+        JLabel liveValue = new JLabel("Updates live", SwingConstants.RIGHT);
+        for (JLabel value : List.of(lblSeatVenue, lblSeatWhen, priceValue, liveValue)) {
+            value.setFont(UIFonts.BODY_BOLD);
+            value.setForeground(UIColors.TEXT_DARK);
+        }
         JPanel infoBlock = new JPanel(new GridLayout(4, 1, 0, 6));
         infoBlock.setOpaque(false);
         infoBlock.setBorder(BorderFactory.createEmptyBorder(12, 2, 12, 2));
-        infoBlock.add(createInfoRow("Screen:", "Hall 1 (Atmos)"));
-        infoBlock.add(createInfoRow("Format:", "Digital 2D"));
-        infoBlock.add(createInfoRow("Price:", "$12.50"));
-        infoBlock.add(createInfoRow("Sync:", "Live Active"));
+        infoBlock.add(labeledValue("Where", lblSeatVenue));
+        infoBlock.add(labeledValue("When", lblSeatWhen));
+        infoBlock.add(labeledValue("Price", priceValue));
+        infoBlock.add(labeledValue("Seats", liveValue));
 
         leftMovieCard.add(lblSeatMapPoster);
         leftMovieCard.add(Box.createVerticalStrut(8));
@@ -370,7 +422,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         seatGridPanel.setCurrentUserId(userId);
         seatGridPanel.addSelectionListener(this::onSeatSelectionChanged);
 
-        lblSeatState = new JLabel("Real-time availability for show " + showId, SwingConstants.CENTER);
+        lblSeatState = new JLabel("Teal seats are open. Blue seats are already yours.", SwingConstants.CENTER);
         lblSeatState.setFont(UIFonts.BODY);
         lblSeatState.setForeground(UIColors.TEXT_MUTED);
 
@@ -388,10 +440,10 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
 
     private JPanel createMoviesPage() {
         JPanel page = new JPanel(new BorderLayout(12, 12));
-        page.setBackground(UIColors.SOFT_WHITE);
+        page.setBackground(UIColors.CANVAS);
         page.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
 
-        movieRows = tableModel("Movie ID", "Title", "Genre", "Duration (min)");
+        movieRows = tableModel("Title", "Genre", "Length");
 
         // Top actions
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -415,7 +467,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
             actions.add(actionButton("Create movie", this::showCreateMovieDialog));
         }
 
-        SectionHeader header = new SectionHeader("Cinema Movies Catalog", "Browse active movie listings and select a movie to view details", actions);
+        SectionHeader header = new SectionHeader("Movies", "Step 1. Choose a film. Then open its showtimes.", actions);
         page.add(header, BorderLayout.NORTH);
 
         // Center split layout: Left = movie cards grid, Right = selected movie details
@@ -426,11 +478,10 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         movieCardsGrid = new JPanel(new FlowLayout(FlowLayout.LEFT, 14, 14));
         movieCardsGrid.setOpaque(false);
         JScrollPane scrollCards = new JScrollPane(movieCardsGrid);
-        scrollCards.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(UIColors.LIGHT_BORDER, 1),
-            BorderFactory.createEmptyBorder(6, 6, 6, 6)
-        ));
-        scrollCards.getViewport().setBackground(UIColors.SOFT_WHITE);
+        scrollCards.setBorder(BorderFactory.createEmptyBorder(4, 2, 4, 2));
+        scrollCards.setOpaque(false);
+        scrollCards.getViewport().setOpaque(false);
+        scrollCards.getViewport().setBackground(UIColors.CANVAS);
         scrollCards.getVerticalScrollBar().setUnitIncrement(14);
         splitPanel.add(scrollCards, BorderLayout.CENTER);
 
@@ -452,14 +503,14 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         badgeRow.setOpaque(false);
         lblSelectedMovieGenre = new JLabel("");
         lblSelectedMovieGenre.setFont(UIFonts.BADGE);
-        lblSelectedMovieGenre.setForeground(UIColors.DEEP_PURPLE);
+        lblSelectedMovieGenre.setForeground(UIColors.ACCENT);
         lblSelectedMovieDuration = new JLabel("");
         lblSelectedMovieDuration.setFont(UIFonts.BADGE);
         lblSelectedMovieDuration.setForeground(UIColors.TEXT_MUTED);
         badgeRow.add(lblSelectedMovieGenre);
         badgeRow.add(lblSelectedMovieDuration);
 
-        txtSelectedMovieDesc = new JTextArea("Click any movie card to inspect details and view available showtimes.");
+        txtSelectedMovieDesc = new JTextArea("Select a movie to see what it is about, then continue to showtimes.");
         txtSelectedMovieDesc.setEditable(false);
         txtSelectedMovieDesc.setLineWrap(true);
         txtSelectedMovieDesc.setWrapStyleWord(true);
@@ -468,7 +519,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         txtSelectedMovieDesc.setBackground(UIColors.PURE_WHITE);
         txtSelectedMovieDesc.setBorder(BorderFactory.createEmptyBorder(6, 4, 6, 4));
 
-        btnBookSelectedMovie = new ModernButton("View Shows & Book", ModernButton.Variant.PRIMARY);
+        btnBookSelectedMovie = new ModernButton("See showtimes", ModernButton.Variant.PRIMARY);
         btnBookSelectedMovie.setAlignmentX(CENTER_ALIGNMENT);
         btnBookSelectedMovie.setEnabled(false);
         btnBookSelectedMovie.addActionListener(e -> showPage("Shows"));
@@ -495,30 +546,31 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
 
     private JPanel createShowsPage() {
         JPanel page = new JPanel(new BorderLayout(12, 12));
-        page.setBackground(UIColors.SOFT_WHITE);
+        page.setBackground(UIColors.CANVAS);
         page.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
 
-        showRows = tableModel("Show ID", "Movie Title", "Start Time", "Auditorium", "Available", "Total Capacity");
+        showRows = tableModel("Show ID", "Movie", "When", "Auditorium", "Seats left", "Seats");
         showsTable = new JTable(showRows);
         styleTable(showsTable);
+        hideColumn(showsTable, 0);
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         actions.setOpaque(false);
-        actions.add(actionButton("Refresh shows", this::requestShows));
+        actions.add(actionButton("Refresh showtimes", this::requestShows));
 
-        ModernButton btnOpenShow = new ModernButton("Open Selected Show", ModernButton.Variant.PRIMARY);
+        ModernButton btnOpenShow = new ModernButton("Choose seats", ModernButton.Variant.PRIMARY);
         btnOpenShow.setFont(UIFonts.custom(Font.BOLD, 12));
         btnOpenShow.addActionListener(e -> openSelectedShow());
         actions.add(btnOpenShow);
 
         if (role == UserRole.ADMIN) {
-            actions.add(actionButton("Create show", this::showCreateShowDialog));
-            actions.add(actionButton("Disable show", this::disableSelectedShow));
+            actions.add(actionButton("Add showtime", this::showCreateShowDialog));
+            actions.add(actionButton("Cancel showtime", this::disableSelectedShow));
         }
 
         SectionHeader header = new SectionHeader(
-            "Cinema Showtimes & Screenings",
-            "Browse active screenings across cinema auditoriums and select a show to reserve seats",
+            "Showtimes",
+            "Step 2. Select this film's showtime, then choose your seats.",
             actions
         );
         page.add(header, BorderLayout.NORTH);
@@ -553,13 +605,13 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
 
         JLabel bannerTag = new JLabel("FEATURED SCREENINGS & AUDITORIUMS");
         bannerTag.setFont(UIFonts.BADGE);
-        bannerTag.setForeground(UIColors.LAVENDER_PRIMARY);
+        bannerTag.setForeground(new Color(0xFB, 0xC4, 0xD0));
 
         JLabel bannerTitle = new JLabel("Experience Blockbusters in IMAX & Dolby Surround");
         bannerTitle.setFont(UIFonts.TITLE_MEDIUM);
         bannerTitle.setForeground(UIColors.PURE_WHITE);
 
-        JLabel bannerSub = new JLabel("Select an active screening below to open the real-time cinema seating plan and reserve your seats.");
+        JLabel bannerSub = new JLabel("Select a showtime below, then choose an open seat.");
         bannerSub.setFont(UIFonts.BODY_SMALL);
         bannerSub.setForeground(new Color(0xD8, 0xD5, 0xE3));
 
@@ -597,25 +649,27 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
 
     private JPanel createTicketsPage() {
         JPanel page = new JPanel(new BorderLayout(12, 12));
-        page.setBackground(UIColors.SOFT_WHITE);
+        page.setBackground(UIColors.CANVAS);
         page.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
 
-        ticketRows = tableModel("Booking ID", "Show", "Seat", "Show time", "Status", "Ticket ID");
+        ticketRows = tableModel("Booking ID", "Movie", "Seat", "When", "Status", "Ticket ID");
         ticketsTable = new JTable(ticketRows);
         styleTable(ticketsTable);
+        hideColumn(ticketsTable, 0);
+        hideColumn(ticketsTable, 5);
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         actions.setOpaque(false);
-        actions.add(actionButton("Refresh history", this::requestBookingHistory));
+        actions.add(actionButton("Refresh tickets", this::requestBookingHistory));
 
-        ModernButton btnViewTicket = new ModernButton("View Digital Pass", ModernButton.Variant.PRIMARY);
+        ModernButton btnViewTicket = new ModernButton("View ticket", ModernButton.Variant.PRIMARY);
         btnViewTicket.setFont(UIFonts.custom(Font.BOLD, 12));
         btnViewTicket.addActionListener(e -> viewSelectedTicket());
         actions.add(btnViewTicket);
 
         SectionHeader header = new SectionHeader(
-            "My Bookings & Digital Tickets",
-            "Review your active reservations and inspect cryptographically verified cinema admission passes",
+            "My tickets",
+            "Tickets you have booked. Select one to open it.",
             actions
         );
         page.add(header, BorderLayout.NORTH);
@@ -650,13 +704,13 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
 
         JLabel bannerTag = new JLabel("CINEMA CONCESSIONS & ADMISSION");
         bannerTag.setFont(UIFonts.BADGE);
-        bannerTag.setForeground(UIColors.LAVENDER_PRIMARY);
+        bannerTag.setForeground(new Color(0xFB, 0xC4, 0xD0));
 
-        JLabel bannerTitle = new JLabel("Fast-Track Admission & Concession Combos");
+        JLabel bannerTitle = new JLabel("Your tickets stay with this account");
         bannerTitle.setFont(UIFonts.TITLE_MEDIUM);
         bannerTitle.setForeground(UIColors.PURE_WHITE);
 
-        JLabel bannerSub = new JLabel("Present your digital ticket QR code at the entrance scanner to redeem complimentary popcorn & drinks.");
+        JLabel bannerSub = new JLabel("Open a ticket to see the movie, seat, and when it was booked.");
         bannerSub.setFont(UIFonts.BODY_SMALL);
         bannerSub.setForeground(new Color(0xD8, 0xD5, 0xE3));
 
@@ -694,12 +748,12 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
 
     private JPanel createWaitlistPage() {
         JPanel page = new JPanel(new BorderLayout(12, 12));
-        page.setBackground(UIColors.SOFT_WHITE);
+        page.setBackground(UIColors.CANVAS);
         page.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
 
         SectionHeader header = new SectionHeader(
-            "Show Waitlist & Standby Queue",
-            "Join the automated standby queue for sold-out screenings and receive instant hold allocations"
+            "Waitlist",
+            "If the show you want is full, join the queue. A free seat is held for you for 2 minutes."
         );
         page.add(header, BorderLayout.NORTH);
 
@@ -711,14 +765,13 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         iconLabel.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 48));
         iconLabel.setAlignmentX(CENTER_ALIGNMENT);
 
-        lblWaitlistStatus = new JLabel("Select a show to view or join its waitlist.", SwingConstants.CENTER);
+        lblWaitlistStatus = new JLabel("Join the queue for the showtime you selected.", SwingConstants.CENTER);
         lblWaitlistStatus.setFont(UIFonts.TITLE_MEDIUM);
         lblWaitlistStatus.setForeground(UIColors.TEXT_DARK);
         lblWaitlistStatus.setAlignmentX(CENTER_ALIGNMENT);
 
         JLabel explanation = new JLabel("<html><center><p style='width:420px; color:#6C6A78; font-size:12px; line-height:1.5;'>"
-            + "When seats in high demand sell out or holds expire, SeatSync's FIFO standby engine automatically "
-            + "promotes queued patrons and reserves a temporary 2-minute booking window."
+            + "Use this after you have chosen a showtime. If a seat opens, you will get two minutes to confirm it."
             + "</p></center></html>", SwingConstants.CENTER);
         explanation.setAlignmentX(CENTER_ALIGNMENT);
 
@@ -726,17 +779,17 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         actions.setOpaque(false);
         actions.setAlignmentX(CENTER_ALIGNMENT);
 
-        ModernButton btnCheck = new ModernButton("Check Status", ModernButton.Variant.SECONDARY);
-        btnCheck.addActionListener(e -> requestWaitlistStatus());
-
-        ModernButton btnJoin = new ModernButton("Join Standby Queue", ModernButton.Variant.PRIMARY);
+        ModernButton btnJoin = new ModernButton("Join the queue", ModernButton.Variant.PRIMARY);
         btnJoin.addActionListener(e -> joinWaitlist());
 
-        ModernButton btnLeave = new ModernButton("Leave Queue", ModernButton.Variant.OUTLINE);
+        ModernButton btnCheck = new ModernButton("Check my place", ModernButton.Variant.SECONDARY);
+        btnCheck.addActionListener(e -> requestWaitlistStatus());
+
+        ModernButton btnLeave = new ModernButton("Leave the queue", ModernButton.Variant.OUTLINE);
         btnLeave.addActionListener(e -> leaveWaitlist());
 
-        actions.add(btnCheck);
         actions.add(btnJoin);
+        actions.add(btnCheck);
         actions.add(btnLeave);
 
         queueCard.add(Box.createVerticalGlue());
@@ -755,7 +808,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
 
     private JPanel createAdminPage() {
         JPanel page = new JPanel(new BorderLayout(12, 12));
-        page.setBackground(UIColors.SOFT_WHITE);
+        page.setBackground(UIColors.CANVAS);
         page.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -765,14 +818,14 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         actions.add(actionButton("List bookings", this::requestAdminBookings));
 
         SectionHeader header = new SectionHeader(
-            "Administrator Telemetry & Operations",
-            "Monitor non-blocking Java NIO socket metrics, security audit trails, and master booking registry",
+            "Staff tools",
+            "Check how busy the cinema is, review activity, and look up bookings.",
             actions
         );
         page.add(header, BorderLayout.NORTH);
 
         if (role != UserRole.ADMIN) {
-            EmptyStatePanel restricted = new EmptyStatePanel("Administrator Access Required", "This console requires elevated administrative privileges to view telemetry and audit records.");
+            EmptyStatePanel restricted = new EmptyStatePanel("Staff only", "These tools are available to cinema staff.");
             page.add(restricted, BorderLayout.CENTER);
             return page;
         }
@@ -789,10 +842,10 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         adminDashboard.setBackground(UIColors.DEEP_CHARCOAL);
         adminDashboard.setForeground(new Color(0xD8, 0xD0, 0xF2));
         adminDashboard.setCaretColor(Color.WHITE);
-        adminDashboard.setText("SeatSync Administrator Telemetry Console\n"
-            + "Press 'Refresh metrics' to query live non-blocking NIO socket metrics.\n"
-            + "Press 'Audit logs' to inspect security access events.\n"
-            + "Press 'List bookings' to review all system reservations.\n");
+        adminDashboard.setText("Staff tools\n"
+            + "Refresh metrics shows how the cinema is running.\n"
+            + "Audit logs shows recent sign-in and booking activity.\n"
+            + "List bookings shows every reservation.\n");
 
         JScrollPane scrollPane = new JScrollPane(adminDashboard);
         scrollPane.setBorder(BorderFactory.createEmptyBorder());
@@ -809,17 +862,27 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         table.setShowVerticalLines(false);
         table.setShowHorizontalLines(true);
         table.setGridColor(UIColors.LIGHT_BORDER);
-        table.setSelectionBackground(new Color(0xD8, 0xD0, 0xF2));
+        table.setSelectionBackground(new Color(0xFB, 0xE4, 0xEA));
         table.setSelectionForeground(UIColors.TEXT_DARK);
         table.setFillsViewportHeight(true);
         table.setBackground(UIColors.PURE_WHITE);
 
         JTableHeader header = table.getTableHeader();
         header.setFont(UIFonts.BODY_BOLD);
-        header.setBackground(UIColors.DEEP_CHARCOAL);
-        header.setForeground(UIColors.PURE_WHITE);
+        header.setBackground(new Color(0x3F, 0x2A, 0x32));
+        header.setForeground(new Color(0xFF, 0xF7, 0xF2));
+        header.setOpaque(true);
         header.setPreferredSize(new Dimension(0, 36));
         header.setReorderingAllowed(false);
+        header.setDefaultRenderer((table1, value, isSelected, hasFocus, row, column) -> {
+            JLabel label = new JLabel(value == null ? "" : value.toString());
+            label.setOpaque(true);
+            label.setBackground(new Color(0x3F, 0x2A, 0x32));
+            label.setForeground(new Color(0xFF, 0xF7, 0xF2));
+            label.setFont(UIFonts.BODY_BOLD);
+            label.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 10));
+            return label;
+        });
 
         DefaultTableCellRenderer renderer = new DefaultTableCellRenderer() {
             @Override
@@ -827,7 +890,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
                 super.getTableCellRendererComponent(tbl, value, isSelected, hasFocus, row, col);
                 setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 10));
                 if (!isSelected) {
-                    setBackground(row % 2 == 0 ? UIColors.PURE_WHITE : new Color(0xFA, 0xFA, 0xFD));
+                    setBackground(row % 2 == 0 ? UIColors.PURE_WHITE : new Color(0xFB, 0xF7, 0xF3));
                     setForeground(UIColors.TEXT_DARK);
                 }
                 return this;
@@ -855,7 +918,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
 
     private JPanel createHomePage() {
         JPanel home = new JPanel(new BorderLayout(14, 14));
-        home.setBackground(UIColors.SOFT_WHITE);
+        home.setBackground(UIColors.CANVAS);
         home.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 14));
 
         // Top Cinematic Hero Section (Auditorium Screen & Online Booking Banner)
@@ -886,15 +949,15 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
 
         JLabel welcomeLabel = new JLabel("Welcome back, " + username);
         welcomeLabel.setFont(UIFonts.TITLE_MEDIUM);
-        welcomeLabel.setForeground(UIColors.LAVENDER_PRIMARY);
+        welcomeLabel.setForeground(new Color(0xFB, 0xC4, 0xD0));
         welcomeLabel.setAlignmentX(LEFT_ALIGNMENT);
 
-        JLabel heroTitle = new JLabel("Grand Cinema Experience");
+        JLabel heroTitle = new JLabel("What would you like to see?");
         heroTitle.setFont(UIFonts.HERO_TITLE);
         heroTitle.setForeground(UIColors.PURE_WHITE);
         heroTitle.setAlignmentX(LEFT_ALIGNMENT);
 
-        lblShowTitle = new JLabel("Active Show: " + showId + " • Real-Time Synchronization Active");
+        lblShowTitle = new JLabel("Start with a movie, then pick a showtime and a seat.");
         lblShowTitle.setFont(UIFonts.BODY);
         lblShowTitle.setForeground(new Color(0xD8, 0xD5, 0xE3));
         lblShowTitle.setAlignmentX(LEFT_ALIGNMENT);
@@ -902,12 +965,15 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         JPanel heroActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
         heroActions.setOpaque(false);
         heroActions.setAlignmentX(LEFT_ALIGNMENT);
-        ModernButton btnHeroBook = new ModernButton("Book Seats Now", ModernButton.Variant.PRIMARY);
-        btnHeroBook.addActionListener(e -> showPage("Seat Map"));
-        ModernButton btnHeroBrowse = new ModernButton("Browse Movies", ModernButton.Variant.SECONDARY);
+        ModernButton btnHeroBrowse = new ModernButton("1   Browse movies", ModernButton.Variant.PRIMARY);
         btnHeroBrowse.addActionListener(e -> showPage("Movies"));
-        heroActions.add(btnHeroBook);
+        ModernButton btnHeroBook = new ModernButton("2   Pick a showtime", ModernButton.Variant.SECONDARY);
+        btnHeroBook.addActionListener(e -> showPage(selectedMovie == null ? "Movies" : "Shows"));
+        ModernButton btnHeroSeats = new ModernButton("3   Choose seats", ModernButton.Variant.SECONDARY);
+        btnHeroSeats.addActionListener(e -> showPage("Seat Map"));
         heroActions.add(btnHeroBrowse);
+        heroActions.add(btnHeroBook);
+        heroActions.add(btnHeroSeats);
 
         heroTextPanel.add(welcomeLabel);
         heroTextPanel.add(Box.createVerticalStrut(4));
@@ -937,7 +1003,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         centerContainer.add(Box.createVerticalStrut(14));
 
         // Now Showing Section Header
-        SectionHeader homeSectionHeader = new SectionHeader("Now Showing in Cinemas", "Select a featured movie to view showtimes and reserve seats");
+        SectionHeader homeSectionHeader = new SectionHeader("Now showing", "Choose a film to continue to its showtimes.");
         homeSectionHeader.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
         centerContainer.add(homeSectionHeader);
         centerContainer.add(Box.createVerticalStrut(8));
@@ -1010,7 +1076,11 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
             return;
         }
         this.selectedMovie = movie;
-        updateSeatMapMovieInfo();
+        showtimeChosen = false;
+        if (navigation != null) {
+            navigation.setPageEnabled("Seat Map", false);
+        }
+        refreshShowLabels();
         if (lblSelectedMovieTitle != null) {
             lblSelectedMovieTitle.setText("<html><center>" + movie.title() + "</center></html>");
             lblSelectedMovieGenre.setText(movie.genre());
@@ -1024,6 +1094,23 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     }
 
     void showPage(String page) {
+        if ("Seat Map".equals(page) && !showtimeChosen) {
+            if (selectedMovie == null) {
+                page = "Movies";
+                if (lblMovieState != null) {
+                    lblMovieState.setText("Choose a film first. Then pick its showtime. Seats open only after that.");
+                }
+            } else {
+                page = "Shows";
+                if (lblShowState != null) {
+                    lblShowState.setText("Choose a showtime for " + selectedMovie.title()
+                        + ". Its seats open only after you select that showtime.");
+                }
+            }
+            if (navigation != null) {
+                navigation.select(page);
+            }
+        }
         pageLayout.show(pageCards, page);
         switch (page) {
             case "Movies" -> requestMovies();
@@ -1061,7 +1148,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
 
                     for (MovieDetails movie : loadedMovies) {
                         movieRows.addRow(new Object[] {
-                            movie.movieId(), movie.title(), movie.genre(), movie.durationMinutes()
+                            movie.title(), movie.genre(), movie.durationMinutes() + " min"
                         });
                         if (movieCardsGrid != null) {
                             MovieCard card = new MovieCard(movie, this::selectMovie);
@@ -1090,13 +1177,12 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
                     }
 
                     lblMovieState.setText(result.movies().items().isEmpty()
-                        ? "No movies are currently available."
-                        : "Page " + (result.movies().pageNumber() + 1) + ": "
-                            + result.movies().items().size() + " movie(s) of " + result.movies().totalItems() + ".");
+                        ? "No movies are showing right now."
+                        : result.movies().items().size() + " movies. Choose one, then open its showtimes.");
                     btnPreviousMovies.setEnabled(result.movies().pageNumber() > 0);
                     btnNextMovies.setEnabled(result.movies().hasMore());
                 } else {
-                    lblMovieState.setText("Unable to load movies: " + reply.getType());
+                    lblMovieState.setText("Movies could not be loaded. Try Refresh movies.");
                     appendLog("[ERROR] Movie catalog request returned " + reply.getType());
                 }
             });
@@ -1112,14 +1198,37 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
             reply -> {
                 if (reply instanceof ShowListReply result) {
                     showRows.setRowCount(0);
-                    result.shows().forEach(show -> showRows.addRow(new Object[] {
-                        show.showId(), show.title(), show.startTime(), show.venue(), show.availableSeats(), show.totalSeats()
-                    }));
-                    lblShowState.setText(result.shows().isEmpty()
-                        ? "No shows are currently available."
-                        : "Loaded " + result.shows().size() + " show(s). Select a row and open its seat map.");
+                    showsById.clear();
+                    int listed = 0;
+                    for (ShowSummary show : result.shows()) {
+                        showsById.put(show.showId(), show);
+                        if (selectedMovie != null && !selectedMovie.title().equalsIgnoreCase(show.title())) {
+                            continue;
+                        }
+                        showRows.addRow(new Object[] {
+                            show.showId(),
+                            show.title(),
+                            friendlyTime(show.startTime()),
+                            show.venue(),
+                            show.availableSeats() + " left",
+                            show.totalSeats()
+                        });
+                        listed++;
+                    }
+                    refreshShowLabels();
+                    requestBookingHistory();
+                    if (selectedMovie != null) {
+                        lblShowState.setText(listed == 0
+                            ? "No showtimes for " + selectedMovie.title() + "."
+                            : listed + (listed == 1 ? " showtime for " : " showtimes for ")
+                                + selectedMovie.title() + ". Select one, then choose your seats.");
+                    } else {
+                        lblShowState.setText(listed == 0
+                            ? "No showtimes are available."
+                            : listed + " showtimes. Select one, then choose your seats.");
+                    }
                 } else {
-                    lblShowState.setText("Unable to load shows: " + reply.getType());
+                    lblShowState.setText("Showtimes could not be loaded. Try Refresh showtimes.");
                     appendLog("[ERROR] Show catalog request returned " + reply.getType());
                 }
             });
@@ -1128,16 +1237,19 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     private void openSelectedShow() {
         int row = showsTable.getSelectedRow();
         if (row < 0) {
-            JOptionPane.showMessageDialog(this, "Select a show first.", "No Show Selected", JOptionPane.INFORMATION_MESSAGE);
+            NoticeDialog.show(this, "Choose a showtime", "Select a showtime first.", NoticeDialog.Kind.INFO);
             return;
         }
         String previousShowId = showId;
         showId = showsTable.getValueAt(row, 0).toString();
         if (!previousShowId.equals(showId)) {
-            if (activeHoldId != null) {
-                sendRequestAsync(new ReleaseHoldRequest(tcpClient.nextRequestId(), activeHoldId),
+            for (String holdId : java.util.List.copyOf(activeHoldIds)) {
+                sendRequestAsync(new ReleaseHoldRequest(tcpClient.nextRequestId(), holdId),
                     "RELEASE_HOLD", () -> {});
             }
+            activeHoldIds.clear();
+            activeHeldSeats.clear();
+            reconnectCoordinator.untrackShowSubscription(previousShowId);
             sendRequestAsync(new com.seatsync.common.protocol.request.UnsubscribeEventsRequest(
                 tcpClient.nextRequestId(), previousShowId), "UNSUBSCRIBE_EVENTS", () -> {});
             seatHoldExpiries.clear();
@@ -1146,13 +1258,26 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
             activeHoldExpiresAt = 0;
             subscribeToSelectedShow();
         }
-        lblShowTitle.setText("Your SeatSync booking overview for " + showId);
+        String chosenTitle = showTitle(showId);
+        for (MovieDetails movie : loadedMovies) {
+            if (movie.title() != null && movie.title().equalsIgnoreCase(chosenTitle)) {
+                selectedMovie = movie;
+                break;
+            }
+        }
+        refreshShowLabels();
         updateSeatMapMovieInfo();
         requestSeatSnapshot();
+        showtimeChosen = true;
+        if (navigation != null) {
+            navigation.setPageEnabled("Seat Map", true);
+            navigation.select("Seat Map");
+        }
         showPage("Seat Map");
     }
 
     private void subscribeToSelectedShow() {
+        reconnectCoordinator.trackShowSubscription(showId);
         sendRequestAsync(new SubscribeEventsRequest(tcpClient.nextRequestId(), showId), "SUBSCRIBE_EVENTS", () -> {});
     }
 
@@ -1160,20 +1285,36 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         if (tcpClient == null) {
             return;
         }
-        lblTicketState.setText("Loading booking history...");
+        lblTicketState.setText("Loading your tickets...");
         sendRequestAsync(new GetBookingHistoryRequest(tcpClient.nextRequestId(), 0, 20), "GET_BOOKING_HISTORY",
             () -> lblTicketState.setText("History request failed. Check the connection and retry."),
             reply -> {
                 if (reply instanceof BookingHistoryReply result) {
                     ticketRows.setRowCount(0);
-                    result.history().items().forEach(item -> ticketRows.addRow(new Object[] {
-                        item.bookingId(), item.showId(), item.seatId(), item.showTime(), item.status(), item.ticketId()
-                    }));
+                    result.history().items().forEach(item -> {
+                        if ("CONFIRMED".equalsIgnoreCase(item.status()) && item.seatId() != null && item.bookingId() != null) {
+                            userBookings.putIfAbsent(item.seatId(), item.bookingId());
+                        }
+                        String when = item.showTime();
+                        if (when == null || when.isBlank() || "Scheduled".equals(when)) {
+                            ShowSummary show = showsById.get(item.showId());
+                            when = show == null ? when : show.startTime();
+                        }
+                        ticketRows.addRow(new Object[] {
+                        item.bookingId(),
+                        displayShowTitle(item.showId(), item.showTitle()),
+                        item.seatId(),
+                        friendlyTime(when),
+                        friendlyStatus(item.status()),
+                        item.ticketId()
+                    });
+                    });
                     lblTicketState.setText(result.history().items().isEmpty()
-                        ? "No booking history found."
-                        : "Showing " + result.history().items().size() + " of " + result.history().totalItems() + " booking(s).");
+                        ? "You have no tickets yet."
+                        : result.history().items().size() + " ticket"
+                            + (result.history().items().size() == 1 ? "" : "s") + ".");
                 } else {
-                    lblTicketState.setText("Unable to load history: " + reply.getType());
+                    lblTicketState.setText("Tickets could not be loaded. Try Refresh tickets.");
                     appendLog("[ERROR] Booking history request returned " + reply.getType());
                 }
             });
@@ -1182,7 +1323,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     private void viewSelectedTicket() {
         int row = ticketsTable.getSelectedRow();
         if (row < 0 || ticketsTable.getValueAt(row, 5) == null) {
-            JOptionPane.showMessageDialog(this, "Select a ticketed booking first.", "No Ticket Selected", JOptionPane.INFORMATION_MESSAGE);
+            NoticeDialog.show(this, "No ticket selected", "Select a ticket first.", NoticeDialog.Kind.INFO);
             return;
         }
         String ticketId = ticketsTable.getValueAt(row, 5).toString();
@@ -1200,14 +1341,14 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         if (GraphicsEnvironment.isHeadless()) {
             return;
         }
-        JDialog dialog = new JDialog(this, "Digital Cinema Admission Pass", true);
+        JDialog dialog = new JDialog(this, "Your ticket", true);
         dialog.setSize(420, 560);
         dialog.setLocationRelativeTo(this);
         dialog.setResizable(false);
 
         JPanel content = new JPanel();
         content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
-        content.setBackground(UIColors.SOFT_WHITE);
+        content.setBackground(UIColors.CANVAS);
         content.setBorder(BorderFactory.createEmptyBorder(20, 24, 20, 24));
 
         RoundedPanel passCard = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.PURE_WHITE, UIColors.LIGHT_BORDER, 1, true);
@@ -1217,13 +1358,13 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         JPanel brandRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 0));
         brandRow.setOpaque(false);
         JLabel logo = new JLabel(new ImageIcon(ImageResourceManager.getSeatSyncLogo(28, 28)));
-        JLabel brand = new JLabel("SeatSync Cinema Pass");
+        JLabel brand = new JLabel("SeatSync ticket");
         brand.setFont(UIFonts.TITLE_SMALL);
         brand.setForeground(UIColors.TEXT_DARK);
         brandRow.add(logo);
         brandRow.add(brand);
 
-        StatusBadge verifiedBadge = new StatusBadge("CRYPTOGRAPHICALLY VERIFIED", StatusBadge.Type.SUCCESS);
+        StatusBadge verifiedBadge = new StatusBadge("CONFIRMED", StatusBadge.Type.SUCCESS);
         verifiedBadge.setAlignmentX(CENTER_ALIGNMENT);
 
         RoundedPanel seatBox = new RoundedPanel(UISpacing.RADIUS_MEDIUM, UIColors.DEEP_CHARCOAL, UIColors.DEEP_CHARCOAL, 1, false);
@@ -1232,9 +1373,9 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         seatBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 75));
         seatBox.setAlignmentX(CENTER_ALIGNMENT);
 
-        JLabel lblSeatWord = new JLabel("RESERVED SEAT");
+        JLabel lblSeatWord = new JLabel("YOUR SEAT");
         lblSeatWord.setFont(UIFonts.BADGE);
-        lblSeatWord.setForeground(UIColors.LAVENDER_PRIMARY);
+        lblSeatWord.setForeground(new Color(0xFB, 0xC4, 0xD0));
         lblSeatWord.setAlignmentX(CENTER_ALIGNMENT);
 
         JLabel lblSeatValue = new JLabel(ticket.seatId());
@@ -1246,40 +1387,15 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         seatBox.add(Box.createVerticalStrut(2));
         seatBox.add(lblSeatValue);
 
-        JPanel detailsGrid = new JPanel(new GridLayout(4, 1, 0, 8));
+        JPanel detailsGrid = new JPanel(new GridLayout(2, 1, 0, 8));
         detailsGrid.setOpaque(false);
         detailsGrid.setBorder(BorderFactory.createEmptyBorder(14, 4, 14, 4));
-        detailsGrid.add(createInfoRow("Ticket ID:", ticket.ticketId()));
-        detailsGrid.add(createInfoRow("Booking ID:", ticket.bookingId()));
-        detailsGrid.add(createInfoRow("Cinema Show:", ticket.showId()));
+        detailsGrid.add(createInfoRow("Movie", displayShowTitle(ticket.showId(), null)));
         String issuedStr = java.time.Instant.ofEpochMilli(ticket.issuedAt()).toString();
-        if (issuedStr.length() >= 19) {
-            issuedStr = issuedStr.substring(0, 19).replace('T', ' ');
+        if (issuedStr.length() >= 16) {
+            issuedStr = issuedStr.substring(0, 16).replace('T', ' ');
         }
-        detailsGrid.add(createInfoRow("Issued At:", issuedStr));
-
-        JPanel barcodePanel = new JPanel();
-        barcodePanel.setLayout(new BoxLayout(barcodePanel, BoxLayout.Y_AXIS));
-        barcodePanel.setOpaque(false);
-        barcodePanel.setAlignmentX(CENTER_ALIGNMENT);
-
-        JLabel barcodeLines = new JLabel("||| | ||||| || |||||| | |||| ||| |||||||", SwingConstants.CENTER);
-        barcodeLines.setFont(new Font("Monospaced", Font.BOLD, 18));
-        barcodeLines.setForeground(UIColors.TEXT_DARK);
-        barcodeLines.setAlignmentX(CENTER_ALIGNMENT);
-
-        String hash = ticket.verificationHash();
-        if (hash != null && hash.length() > 24) {
-            hash = hash.substring(0, 24) + "...";
-        }
-        JLabel hashLabel = new JLabel("SHA-256: " + (hash != null ? hash : "N/A"), SwingConstants.CENTER);
-        hashLabel.setFont(UIFonts.CAPTION);
-        hashLabel.setForeground(UIColors.TEXT_MUTED);
-        hashLabel.setAlignmentX(CENTER_ALIGNMENT);
-
-        barcodePanel.add(barcodeLines);
-        barcodePanel.add(Box.createVerticalStrut(4));
-        barcodePanel.add(hashLabel);
+        detailsGrid.add(createInfoRow("Booked", issuedStr));
 
         passCard.add(brandRow);
         passCard.add(Box.createVerticalStrut(10));
@@ -1288,10 +1404,8 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         passCard.add(seatBox);
         passCard.add(Box.createVerticalStrut(10));
         passCard.add(detailsGrid);
-        passCard.add(Box.createVerticalStrut(10));
-        passCard.add(barcodePanel);
 
-        ModernButton btnClose = new ModernButton("Close Pass", ModernButton.Variant.PRIMARY);
+        ModernButton btnClose = new ModernButton("Close", ModernButton.Variant.PRIMARY);
         btnClose.setAlignmentX(CENTER_ALIGNMENT);
         btnClose.addActionListener(e -> dialog.dispose());
 
@@ -1307,16 +1421,19 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         sendRequestAsync(new JoinWaitlistRequest(tcpClient.nextRequestId(), showId), "JOIN_WAITLIST", () -> {},
             reply -> {
                 if (reply instanceof WaitlistJoinedOkReply result) {
-                    lblWaitlistStatus.setText("Joined " + result.showId() + " waitlist at position " + result.position());
+                    lblWaitlistStatus.setText("You are number " + result.position()
+                        + " for " + showTitle(result.showId()) + ".");
                 } else {
-                    lblWaitlistStatus.setText("Unable to join waitlist: " + reply.getType());
+                    lblWaitlistStatus.setText("Could not join the queue. Choose a showtime and try again.");
                 }
             });
     }
 
     private void leaveWaitlist() {
         sendRequestAsync(new LeaveWaitlistRequest(tcpClient.nextRequestId(), showId), "LEAVE_WAITLIST", () -> {},
-            reply -> lblWaitlistStatus.setText("Waitlist response: " + reply.getType()));
+            reply -> lblWaitlistStatus.setText(reply instanceof WaitlistLeftOkReply
+                ? "You left the queue for " + showTitle(showId) + "."
+                : "Could not leave the queue."));
     }
 
     private void requestWaitlistStatus() {
@@ -1327,11 +1444,11 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
             reply -> {
                 if (reply instanceof WaitlistStatusReply result) {
                     lblWaitlistStatus.setText(result.position() <= 0
-                        ? "You are not currently in the " + showId + " waitlist."
-                        : "Your position for " + showId + ": " + result.position()
-                            + " of " + result.totalWaitlistSize());
+                        ? "You are not in the queue for " + showTitle(showId) + "."
+                        : "You are number " + result.position() + " of " + result.totalWaitlistSize()
+                            + " for " + showTitle(showId) + ".");
                 } else {
-                    lblWaitlistStatus.setText("Waitlist response: " + reply.getType());
+                    lblWaitlistStatus.setText("Could not check the queue.");
                 }
             });
     }
@@ -1345,7 +1462,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
                 if (reply instanceof ServerMetricsReply result) {
                     adminDashboard.append("\n\nServer metrics:\n" + result.metrics());
                 } else {
-                    adminDashboard.append("\nServer metrics unavailable: " + reply.getType());
+                    adminDashboard.append("\nCould not load how busy the cinema is.");
                 }
             });
         sendRequestAsync(new GetNetworkMetricsRequest(tcpClient.nextRequestId()), "GET_NETWORK_METRICS", () -> {},
@@ -1353,7 +1470,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
                 if (reply instanceof NetworkMetricsReply result) {
                     adminDashboard.append("\n\nNetwork metrics:\n" + result.metrics());
                 } else {
-                    adminDashboard.append("\nNetwork metrics unavailable: " + reply.getType());
+                    adminDashboard.append("\nCould not load connection details.");
                 }
             });
     }
@@ -1368,7 +1485,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
                     adminDashboard.append("\n\nRecent audit logs:\n");
                     result.logs().forEach(log -> adminDashboard.append(log + "\n"));
                 } else {
-                    adminDashboard.append("\nAudit logs unavailable: " + reply.getType());
+                    adminDashboard.append("\nCould not load recent activity.");
                 }
             });
     }
@@ -1384,9 +1501,31 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
                 if (reply instanceof AdminBookingsReply result) {
                     result.bookings().items().forEach(booking -> adminDashboard.append(booking + "\n"));
                 } else {
-                    adminDashboard.append("Booking list unavailable: " + reply.getType());
+                    adminDashboard.append("Could not load bookings.");
                 }
             });
+    }
+
+    private JPanel labeledFields(String[] labels, JTextField[] fields) {
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setOpaque(false);
+        for (int index = 0; index < labels.length; index++) {
+            JLabel label = new JLabel(labels[index]);
+            label.setFont(UIFonts.BODY_BOLD);
+            label.setForeground(UIColors.TEXT_DARK);
+            label.setAlignmentX(LEFT_ALIGNMENT);
+            JTextField field = fields[index];
+            field.setFont(UIFonts.BODY);
+            field.setBorder(new com.seatsync.ui.components.RoundedLineBorder(new Color(0xE7, 0xD5, 0xCC), 12, 8));
+            field.setMaximumSize(new Dimension(360, 40));
+            field.setAlignmentX(LEFT_ALIGNMENT);
+            panel.add(label);
+            panel.add(Box.createVerticalStrut(4));
+            panel.add(field);
+            panel.add(Box.createVerticalStrut(10));
+        }
+        return panel;
     }
 
     private void showCreateMovieDialog() {
@@ -1395,10 +1534,9 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         JTextField genre = new JTextField();
         JTextField duration = new JTextField("120");
         JTextField description = new JTextField();
-        Object[] fields = {"Movie ID", id, "Title", title, "Genre", genre,
-            "Duration (minutes)", duration, "Description", description};
-        if (JOptionPane.showConfirmDialog(this, fields, "Create Movie", JOptionPane.OK_CANCEL_OPTION)
-                != JOptionPane.OK_OPTION) {
+        if (!NoticeDialog.accept(this, "Create movie", labeledFields(
+            new String[] {"Movie ID", "Title", "Genre", "Duration (minutes)", "Description"},
+            new JTextField[] {id, title, genre, duration, description}), "Save movie")) {
             return;
         }
         try {
@@ -1409,11 +1547,13 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
                     if (reply instanceof AdminMovieCreatedReply) {
                         requestMovies();
                     }
-                    JOptionPane.showMessageDialog(this, "Movie request: " + reply.getType(),
-                        "Administration", JOptionPane.INFORMATION_MESSAGE);
+                    NoticeDialog.show(this,
+                        reply instanceof AdminMovieCreatedReply ? "Movie saved" : "Could not save the movie",
+                        reply instanceof AdminMovieCreatedReply ? "The movie is now in the catalog." : "Try again with a different movie ID.",
+                        reply instanceof AdminMovieCreatedReply ? NoticeDialog.Kind.SUCCESS : NoticeDialog.Kind.ERROR);
                 });
         } catch (IllegalArgumentException e) {
-            JOptionPane.showMessageDialog(this, "Enter valid movie details.", "Invalid Movie", JOptionPane.ERROR_MESSAGE);
+            NoticeDialog.show(this, "Check the movie", "Enter valid movie details.", NoticeDialog.Kind.ERROR);
         }
     }
 
@@ -1424,10 +1564,9 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         JTextField start = new JTextField(java.time.Instant.now().plusSeconds(3600).toString());
         JTextField end = new JTextField(java.time.Instant.now().plusSeconds(10800).toString());
         JTextField venue = new JTextField();
-        Object[] fields = {"Show ID", show, "Movie ID", movie, "Title", title,
-            "Start (ISO-8601)", start, "End (ISO-8601)", end, "Venue", venue};
-        if (JOptionPane.showConfirmDialog(this, fields, "Create Show", JOptionPane.OK_CANCEL_OPTION)
-                != JOptionPane.OK_OPTION) {
+        if (!NoticeDialog.accept(this, "Add a showtime", labeledFields(
+            new String[] {"Show ID", "Movie ID", "Title", "Start", "End", "Venue"},
+            new JTextField[] {show, movie, title, start, end, venue}), "Save showtime")) {
             return;
         }
         try {
@@ -1442,48 +1581,50 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
                     if (reply instanceof AdminShowAddedReply) {
                         requestShows();
                     }
-                    JOptionPane.showMessageDialog(this, "Show request: " + reply.getType(),
-                        "Administration", JOptionPane.INFORMATION_MESSAGE);
+                    NoticeDialog.show(this,
+                        reply instanceof AdminShowAddedReply ? "Showtime saved" : "Could not save the showtime",
+                        reply instanceof AdminShowAddedReply ? "The showtime is now on the list." : "Check the details and try again.",
+                        reply instanceof AdminShowAddedReply ? NoticeDialog.Kind.SUCCESS : NoticeDialog.Kind.ERROR);
                 });
         } catch (RuntimeException e) {
-            JOptionPane.showMessageDialog(this, "Enter valid show details and ISO-8601 times.",
-                "Invalid Show", JOptionPane.ERROR_MESSAGE);
+            NoticeDialog.show(this, "Check the showtime",
+                "Enter a title, a venue, and valid start and end times.", NoticeDialog.Kind.ERROR);
         }
     }
 
     private void disableSelectedShow() {
         int row = showsTable.getSelectedRow();
         if (row < 0) {
-            JOptionPane.showMessageDialog(this, "Select a show first.", "No Show Selected", JOptionPane.INFORMATION_MESSAGE);
+            NoticeDialog.show(this, "Choose a showtime", "Select a showtime first.", NoticeDialog.Kind.INFO);
             return;
         }
         String selectedShow = showsTable.getValueAt(row, 0).toString();
         sendRequestAsync(new AdminDisableShowRequest(tcpClient.nextRequestId(), selectedShow),
             "ADMIN_DISABLE_SHOW", () -> {}, reply -> {
-                JOptionPane.showMessageDialog(this, "Show administration request: " + reply.getType(),
-                    "Administration", JOptionPane.INFORMATION_MESSAGE);
+                NoticeDialog.show(this, "Showtime updated", "The showtime was updated.", NoticeDialog.Kind.SUCCESS);
                 requestShows();
             });
     }
 
     private JPanel createHeaderPanel() {
         JPanel header = new JPanel(new BorderLayout());
-        header.setBackground(UIColors.DEEP_CHARCOAL);
+        header.setBackground(new Color(0x1A, 0x12, 0x18));
         header.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(UIColors.DARK_BORDER, 1),
-            BorderFactory.createEmptyBorder(10, 16, 10, 16)
+            BorderFactory.createMatteBorder(0, 0, 3, 0, UIColors.ACCENT),
+            BorderFactory.createEmptyBorder(12, 18, 12, 18)
         ));
 
         // Left info
         JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 14, 0));
         infoPanel.setOpaque(false);
-        JLabel titleLabel = new JLabel("Show: " + showId);
-        titleLabel.setFont(UIFonts.TITLE_SMALL);
-        titleLabel.setForeground(UIColors.PURE_WHITE);
-        JLabel userLabel = new JLabel("User: " + username + " (" + role + ")");
+        lblHeaderShow = new JLabel("SeatSync");
+        lblHeaderShow.setFont(UIFonts.TITLE_SMALL);
+        lblHeaderShow.setForeground(UIColors.PURE_WHITE);
+        String who = role == UserRole.ADMIN ? username + " · Staff" : username;
+        JLabel userLabel = new JLabel("Signed in as " + who);
         userLabel.setFont(UIFonts.BODY_SMALL);
         userLabel.setForeground(new Color(0xD8, 0xD5, 0xE3));
-        infoPanel.add(titleLabel);
+        infoPanel.add(lblHeaderShow);
         infoPanel.add(userLabel);
         header.add(infoPanel, BorderLayout.WEST);
 
@@ -1491,10 +1632,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         JPanel statusBox = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         statusBox.setOpaque(false);
         boolean connected = tcpClient != null && tcpClient.isConnected();
-        String transport = tcpClient != null && tcpClient.isTlsEnabled() ? " (TLS 1.3)" : " (plaintext)";
-        lblConnectionStatus = new JLabel(connected
-            ? "● Connected: " + tcpClient.getHost() + ":" + tcpClient.getPort() + transport
-            : "● Disconnected");
+        lblConnectionStatus = new JLabel(connected ? connectionLabel() : "● Not connected");
         lblConnectionStatus.setFont(UIFonts.BODY_BOLD);
         lblConnectionStatus.setForeground(connected ? UIColors.SUCCESS_GREEN : UIColors.ERROR_RED);
         statusBox.add(lblConnectionStatus);
@@ -1514,10 +1652,15 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         summaryCard.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
         summaryCard.setPreferredSize(new Dimension(295, 0));
 
-        JLabel summaryTitle = new JLabel("Booking Summary");
+        JLabel summaryTitle = new JLabel("Your seat");
         summaryTitle.setFont(UIFonts.TITLE_SMALL);
         summaryTitle.setForeground(UIColors.TEXT_DARK);
         summaryTitle.setAlignmentX(LEFT_ALIGNMENT);
+
+        lblSeatGuide = new JLabel("<html>Teal seats are open. Blue seats are already yours.</html>");
+        lblSeatGuide.setFont(UIFonts.CAPTION);
+        lblSeatGuide.setForeground(UIColors.TEXT_MUTED);
+        lblSeatGuide.setAlignmentX(LEFT_ALIGNMENT);
 
         // Selected seat display
         lblSelectedSeat = new JLabel("Selected Seat: None");
@@ -1526,13 +1669,9 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         lblSelectedSeat.setAlignmentX(LEFT_ALIGNMENT);
 
         // Price breakdown box
-        JPanel priceBox = new JPanel(new GridLayout(3, 2, 4, 4));
-        priceBox.setOpaque(false);
-        priceBox.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(UIColors.LIGHT_BORDER, 1),
-            BorderFactory.createEmptyBorder(8, 10, 8, 10)
-        ));
-        priceBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 80));
+        priceBox = new RoundedPanel(new GridLayout(3, 2, 4, 6), 16, new Color(0xFB, 0xF7, 0xF3));
+        priceBox.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+        priceBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 96));
         priceBox.setAlignmentX(LEFT_ALIGNMENT);
 
         priceBox.add(createPriceLabel("Standard Ticket:"));
@@ -1549,10 +1688,9 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         priceBox.add(lblPriceTotal);
 
         // Hold countdown status badge / panel
-        JPanel holdBox = new JPanel(new FlowLayout(FlowLayout.CENTER, 4, 3));
-        holdBox.setBackground(new Color(0xF4, 0xF1, 0xFA));
-        holdBox.setBorder(BorderFactory.createLineBorder(UIColors.LIGHT_BORDER, 1));
-        holdBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        holdBox = new RoundedPanel(new FlowLayout(FlowLayout.CENTER, 4, 2), 16, new Color(0xFD, 0xF5, 0xE8));
+        holdBox.setBorder(BorderFactory.createEmptyBorder(6, 10, 6, 10));
+        holdBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
         holdBox.setAlignmentX(LEFT_ALIGNMENT);
 
         lblHoldCountdown = new JLabel("No active seat hold", SwingConstants.CENTER);
@@ -1561,48 +1699,51 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         holdBox.add(lblHoldCountdown);
 
         // Action Buttons
-        btnHold = new ThemedButton("Hold Seat (2 min)", new Color(0xE6, 0xA2, 0x3C), Color.WHITE);
-        btnHold.setFont(UIFonts.custom(Font.BOLD, 12));
-        btnHold.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
+        btnHold = new ModernButton("Hold for 2 minutes", new Color(0xD9, 0x77, 0x06), Color.WHITE);
+        btnHold.setFont(UIFonts.custom(Font.BOLD, 13));
+        btnHold.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
         btnHold.setAlignmentX(LEFT_ALIGNMENT);
         btnHold.setEnabled(false);
         btnHold.addActionListener(e -> performHoldSeat());
 
-        btnConfirmHold = new ThemedButton("Confirm Booking", new Color(0x2E, 0x7D, 0x32), Color.WHITE);
-        btnConfirmHold.setFont(UIFonts.custom(Font.BOLD, 12));
-        btnConfirmHold.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
+        btnConfirmHold = new ModernButton("Confirm this seat", new Color(0x0F, 0x76, 0x6E), Color.WHITE);
+        btnConfirmHold.setFont(UIFonts.custom(Font.BOLD, 13));
+        btnConfirmHold.setMaximumSize(new Dimension(Integer.MAX_VALUE, 42));
         btnConfirmHold.setAlignmentX(LEFT_ALIGNMENT);
         btnConfirmHold.setEnabled(false);
         btnConfirmHold.addActionListener(e -> confirmActiveHold());
 
-        btnBook = new ThemedButton("Book Directly", new Color(0x82, 0x74, 0xAB), Color.WHITE);
-        btnBook.setFont(UIFonts.custom(Font.BOLD, 12));
-        btnBook.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
+        btnBook = new ModernButton("Book now", ModernButton.Variant.PRIMARY);
+        btnBook.setFont(UIFonts.custom(Font.BOLD, 13));
+        btnBook.setMaximumSize(new Dimension(Integer.MAX_VALUE, 42));
         btnBook.setAlignmentX(LEFT_ALIGNMENT);
         btnBook.setEnabled(false);
         btnBook.addActionListener(e -> performBookSeat());
 
-        btnReleaseHold = new ThemedButton("Release Hold", new Color(0x78, 0x71, 0x8A), Color.WHITE);
-        btnReleaseHold.setFont(UIFonts.custom(Font.BOLD, 11));
-        btnReleaseHold.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        btnReleaseHold = new ModernButton("Release hold", ModernButton.Variant.OUTLINE);
+        btnReleaseHold.setFont(UIFonts.custom(Font.BOLD, 12));
+        btnReleaseHold.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
         btnReleaseHold.setAlignmentX(LEFT_ALIGNMENT);
         btnReleaseHold.setEnabled(false);
         btnReleaseHold.addActionListener(e -> releaseActiveHold());
 
-        btnCancel = new ThemedButton("Cancel My Booking", new Color(0xC6, 0x28, 0x28), Color.WHITE);
-        btnCancel.setFont(UIFonts.custom(Font.BOLD, 11));
-        btnCancel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        btnCancel = new ModernButton("Cancel my ticket", ModernButton.Variant.DANGER);
+        btnCancel.setFont(UIFonts.custom(Font.BOLD, 12));
+        btnCancel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
         btnCancel.setAlignmentX(LEFT_ALIGNMENT);
         btnCancel.setEnabled(false);
         btnCancel.addActionListener(e -> performCancelBooking());
 
-        btnRefresh = new ThemedButton("Refresh Seats", new Color(0x2B, 0x2A, 0x36), Color.WHITE);
+        btnRefresh = new ModernButton("Refresh seats", ModernButton.Variant.SECONDARY);
         btnRefresh.setFont(UIFonts.custom(Font.BOLD, 11));
         btnRefresh.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
         btnRefresh.setAlignmentX(LEFT_ALIGNMENT);
         btnRefresh.addActionListener(e -> requestSeatSnapshot());
+        showOnlyRelevantSeatActions(false, false, false, false);
 
         summaryCard.add(summaryTitle);
+        summaryCard.add(Box.createVerticalStrut(6));
+        summaryCard.add(lblSeatGuide);
         summaryCard.add(Box.createVerticalStrut(8));
         summaryCard.add(lblSelectedSeat);
         summaryCard.add(Box.createVerticalStrut(6));
@@ -1610,23 +1751,18 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         summaryCard.add(Box.createVerticalStrut(6));
         summaryCard.add(holdBox);
         summaryCard.add(Box.createVerticalStrut(8));
+        summaryCard.add(btnBook);
+        summaryCard.add(Box.createVerticalStrut(4));
         summaryCard.add(btnHold);
         summaryCard.add(Box.createVerticalStrut(4));
         summaryCard.add(btnConfirmHold);
-        summaryCard.add(Box.createVerticalStrut(4));
-        summaryCard.add(btnBook);
-        summaryCard.add(Box.createVerticalStrut(4));
+        summaryCard.add(Box.createVerticalStrut(10));
         summaryCard.add(btnReleaseHold);
         summaryCard.add(Box.createVerticalStrut(4));
         summaryCard.add(btnCancel);
-        summaryCard.add(Box.createVerticalStrut(4));
-        summaryCard.add(btnRefresh);
         summaryCard.add(Box.createVerticalGlue());
 
-        JPanel logContainer = createLogPanel();
-        logContainer.setAlignmentX(LEFT_ALIGNMENT);
-        summaryCard.add(logContainer);
-
+        createLogPanel();
         return summaryCard;
     }
 
@@ -1647,19 +1783,36 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         panel.add(scrollPane, BorderLayout.CENTER);
 
-        appendLog("Session initialized for user " + username + " (" + userId + ")");
+        appendLog("Signed in as " + username);
         return panel;
     }
 
     private void onSeatSelectionChanged(String seatId) {
         if (seatId == null) {
-            lblSelectedSeat.setText("Selected Seat: None");
-            if (lblPriceSeat != null) lblPriceSeat.setText("$0.00");
-            if (lblPriceFee != null) lblPriceFee.setText("$0.00");
-            if (lblPriceTotal != null) lblPriceTotal.setText("$0.00");
+            lblSelectedSeat.setText("No seat selected");
+            if (lblSeatGuide != null) {
+                lblSeatGuide.setText("<html>Teal seats are open. Blue seats are already yours.</html>");
+            }
+            showOnlyRelevantSeatActions(false, false, false, false);
+            return;
+        }
+
+        java.util.List<String> chosen = seatGridPanel.getSelectedSeatIds();
+        if (chosen.size() > 1) {
+            boolean connected = tcpClient != null && tcpClient.isConnected();
+            boolean allOpen = chosen.stream().allMatch(id -> {
+                SeatView seat = seatGridPanel.getSeatView(id);
+                return seat != null && seat.status() == SeatStatus.AVAILABLE;
+            });
+            lblSelectedSeat.setText("Seats " + String.join(", ", chosen));
+            lblSeatGuide.setText("<html>Shift-click open seats to hold them together. If one is taken, none are held.</html>");
             btnBook.setEnabled(false);
-            btnHold.setEnabled(false);
+            btnHold.setEnabled(connected && allOpen);
             btnCancel.setEnabled(false);
+            showOnlyRelevantSeatActions(false, false, false, activeHoldId != null);
+            if (btnHold != null) {
+                btnHold.setVisible(allOpen);
+            }
             return;
         }
 
@@ -1669,47 +1822,167 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
 
         boolean isHeld = view != null && view.status() == SeatStatus.HELD;
         boolean connected = tcpClient != null && tcpClient.isConnected();
-        String statusDesc;
+        boolean open = view != null && view.status() == SeatStatus.AVAILABLE;
+        boolean myHold = isHeld && seatId.equals(activeHoldSeatId);
+        boolean canCancel = connected && isBooked && (isMine || userBookings.containsKey(seatId));
         if (isMine) {
-            statusDesc = "Your Booking";
-        } else if (isHeld && seatId.equals(activeHoldSeatId)) {
-            statusDesc = "Your Hold";
-        } else if (isHeld) {
-            statusDesc = "Held";
-        } else if (isBooked) {
-            statusDesc = "Booked";
+            lblSelectedSeat.setText("Seat " + seatId + " is already yours");
+            lblSeatGuide.setText("<html>You booked this seat. Cancel the ticket only if you no longer want it.</html>");
+        } else if (myHold) {
+            lblSelectedSeat.setText("Seat " + seatId + " is held for you");
+            lblSeatGuide.setText("<html>Confirm it before the timer ends, or release it back to the hall.</html>");
+        } else if (isBooked || isHeld) {
+            lblSelectedSeat.setText("Seat " + seatId + " is taken");
+            lblSeatGuide.setText("<html>Someone else has this seat. Choose a teal seat instead.</html>");
         } else {
-            statusDesc = "Available";
-        }
-
-        lblSelectedSeat.setText("Seat " + seatId + " • " + statusDesc);
-        if (view != null && view.status() == SeatStatus.AVAILABLE) {
+            lblSelectedSeat.setText("Seat " + seatId + " is open");
+            lblSeatGuide.setText("<html>Book it now for $14.00, or hold it for 2 minutes. Shift-click to hold several seats together.</html>");
             if (lblPriceSeat != null) lblPriceSeat.setText("$12.50");
             if (lblPriceFee != null) lblPriceFee.setText("$1.50");
             if (lblPriceTotal != null) lblPriceTotal.setText("$14.00");
-        } else {
-            if (lblPriceSeat != null) lblPriceSeat.setText("$0.00");
-            if (lblPriceFee != null) lblPriceFee.setText("$0.00");
-            if (lblPriceTotal != null) lblPriceTotal.setText("$0.00");
         }
-        btnBook.setEnabled(connected && view != null && view.status() == SeatStatus.AVAILABLE);
-        btnHold.setEnabled(connected && view != null && view.status() == SeatStatus.AVAILABLE);
-        btnCancel.setEnabled(connected && isBooked && (isMine || userBookings.containsKey(seatId)));
+        btnBook.setEnabled(connected && open);
+        btnHold.setEnabled(connected && open);
+        btnCancel.setEnabled(canCancel);
+        showOnlyRelevantSeatActions(open, myHold, canCancel, activeHoldId != null);
+    }
+
+    private void showOnlyRelevantSeatActions(boolean openSeat, boolean myHold, boolean canCancel, boolean holdActive) {
+        if (priceBox != null) {
+            priceBox.setVisible(openSeat);
+        }
+        if (holdBox != null) {
+            holdBox.setVisible(holdActive);
+        }
+        if (btnBook != null) {
+            btnBook.setVisible(openSeat);
+        }
+        if (btnHold != null) {
+            btnHold.setVisible(openSeat);
+        }
+        if (btnConfirmHold != null) {
+            btnConfirmHold.setVisible(myHold);
+        }
+        if (btnReleaseHold != null) {
+            btnReleaseHold.setVisible(myHold);
+        }
+        if (btnCancel != null) {
+            btnCancel.setVisible(canCancel);
+        }
+        if (lblSelectedSeat != null && lblSelectedSeat.getParent() != null) {
+            lblSelectedSeat.getParent().revalidate();
+            lblSelectedSeat.getParent().repaint();
+        }
     }
 
     private void updateSeatMapMovieInfo() {
         if (lblSeatMapMovieTitle == null) {
             return;
         }
-        String title = selectedMovie != null ? selectedMovie.title() : "Grand Cinema (" + showId + ")";
-        String genre = selectedMovie != null ? selectedMovie.genre() : "Cinema Feature";
-        int duration = selectedMovie != null ? selectedMovie.durationMinutes() : 120;
+        String title = showTitle(showId);
+        if ("this screening".equals(title)) {
+            title = "Choose a showtime";
+        }
+        MovieDetails movieForShow = null;
+        for (MovieDetails movie : loadedMovies) {
+            if (movie.title() != null && movie.title().equalsIgnoreCase(title)) {
+                movieForShow = movie;
+                break;
+            }
+        }
+        String genre = movieForShow != null ? movieForShow.genre() : "Cinema";
+        int duration = movieForShow != null ? movieForShow.durationMinutes() : 0;
 
         lblSeatMapMovieTitle.setText("<html><center><b>" + title + "</b></center></html>");
-        lblSeatMapGenre.setText(genre + " • " + duration + " min");
+        lblSeatMapGenre.setText(movieForShow == null ? "Seats for this showtime" : genre + " • " + duration + " min");
+        ShowSummary show = showsById.get(showId);
+        if (lblSeatVenue != null) {
+            String venue = show != null && show.venue() != null && !show.venue().isBlank()
+                ? show.venue() : "Main auditorium";
+            lblSeatVenue.setText(venue);
+        }
+        if (lblSeatWhen != null) {
+            lblSeatWhen.setText(show == null ? "Choose a showtime" : friendlyTime(show.startTime()));
+        }
         if (lblSeatMapPoster != null) {
             lblSeatMapPoster.setIcon(new ImageIcon(ImageResourceManager.getMoviePoster(title, genre, 130, 160)));
         }
+    }
+
+    private void refreshShowLabels() {
+        String title = showTitle(showId);
+        boolean known = !"this screening".equals(title);
+        if (lblHeaderShow != null) {
+            if (!showtimeChosen) {
+                lblHeaderShow.setText(selectedMovie == null ? "SeatSync" : selectedMovie.title());
+            } else {
+                lblHeaderShow.setText(known ? title : "SeatSync");
+            }
+        }
+        if (lblShowTitle != null) {
+            if (!showtimeChosen) {
+                lblShowTitle.setText(selectedMovie == null
+                    ? "Choose a movie, then a showtime. Each film has its own seats."
+                    : selectedMovie.title() + " is selected. Choose its showtime before picking seats.");
+            } else {
+                lblShowTitle.setText(known
+                    ? "Now booking: " + title
+                    : "Start with a movie, then pick a showtime and a seat.");
+            }
+        }
+        updateSeatMapMovieInfo();
+    }
+
+    private String showTitle(String id) {
+        ShowSummary show = id == null ? null : showsById.get(id);
+        if (show != null && show.title() != null && !show.title().isBlank()) {
+            return show.title();
+        }
+        return "this screening";
+    }
+
+    private String displayShowTitle(String id, String storedTitle) {
+        String known = showTitle(id);
+        if (!"this screening".equals(known)) {
+            return known;
+        }
+        if (storedTitle != null && !storedTitle.isBlank() && !storedTitle.startsWith("Show ")) {
+            return storedTitle;
+        }
+        return "Movie";
+    }
+
+    private static String friendlyTime(String raw) {
+        if (raw == null || raw.isBlank() || "Scheduled".equals(raw)) {
+            return "Time to be announced";
+        }
+        String value = raw.replace('T', ' ');
+        if (value.endsWith("Z")) {
+            value = value.substring(0, value.length() - 1);
+        }
+        return value.length() >= 16 ? value.substring(0, 16) : value;
+    }
+
+    private static String friendlyStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return "";
+        }
+        String words = status.toLowerCase(Locale.ROOT).replace('_', ' ');
+        return Character.toUpperCase(words.charAt(0)) + words.substring(1);
+    }
+
+    private String connectionLabel() {
+        if (tcpClient != null && tcpClient.isTlsEnabled()) {
+            return "● Connected securely";
+        }
+        return "● Connected";
+    }
+
+    private static void hideColumn(JTable table, int modelIndex) {
+        var column = table.getColumnModel().getColumn(table.convertColumnIndexToView(modelIndex));
+        column.setMinWidth(0);
+        column.setMaxWidth(0);
+        column.setPreferredWidth(0);
     }
 
     private JLabel createPriceLabel(String label) {
@@ -1727,16 +2000,20 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     }
 
     private JPanel createInfoRow(String label, String value) {
+        JLabel lblVal = new JLabel(value, SwingConstants.RIGHT);
+        lblVal.setFont(UIFonts.BODY_BOLD);
+        lblVal.setForeground(UIColors.TEXT_DARK);
+        return labeledValue(label, lblVal);
+    }
+
+    private JPanel labeledValue(String label, JLabel value) {
         JPanel row = new JPanel(new BorderLayout(4, 0));
         row.setOpaque(false);
         JLabel lblKey = new JLabel(label);
         lblKey.setFont(UIFonts.CAPTION);
         lblKey.setForeground(UIColors.TEXT_MUTED);
-        JLabel lblVal = new JLabel(value, SwingConstants.RIGHT);
-        lblVal.setFont(UIFonts.BODY_BOLD);
-        lblVal.setForeground(UIColors.TEXT_DARK);
         row.add(lblKey, BorderLayout.WEST);
-        row.add(lblVal, BorderLayout.EAST);
+        row.add(value, BorderLayout.EAST);
         return row;
     }
 
@@ -1763,7 +2040,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     private void performBookSeat() {
         String seatId = seatGridPanel.getSelectedSeatId();
         if (seatId == null) {
-            JOptionPane.showMessageDialog(this, "Please select an available seat first.", "No Seat Selected", JOptionPane.WARNING_MESSAGE);
+            NoticeDialog.show(this, "No seat selected", "Please select an available seat first.", NoticeDialog.Kind.WARNING);
             return;
         }
 
@@ -1774,82 +2051,150 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     }
 
     private void performHoldSeat() {
-        String seatId = seatGridPanel.getSelectedSeatId();
-        if (seatId == null) {
+        java.util.List<String> seats = seatGridPanel.getSelectedSeatIds();
+        if (seats.isEmpty()) {
             return;
         }
         btnHold.setEnabled(false);
-        sendRequestAsync(new HoldSeatRequest(tcpClient.nextRequestId(), showId, seatId, 120),
-            "HOLD_SEAT", () -> btnHold.setEnabled(true), reply -> {
-                if (reply instanceof HoldOkReply held) {
-                    activeHoldId = held.holdId();
-                    activeHoldSeatId = held.seatId();
+        if (seats.size() == 1) {
+            String seatId = seats.get(0);
+            sendRequestAsync(new HoldSeatRequest(tcpClient.nextRequestId(), showId, seatId, 120),
+                "HOLD_SEAT", () -> btnHold.setEnabled(true), reply -> {
+                    if (reply instanceof HoldOkReply held) {
+                        rememberHold(held.holdId(), held.seatId(), held.expiresAt());
+                        seatGridPanel.updateSingleSeat(SeatView.held(held.seatId(), userId));
+                        btnConfirmHold.setEnabled(true);
+                        btnReleaseHold.setEnabled(true);
+                        updateHoldCountdown();
+                        onSeatSelectionChanged(held.seatId());
+                        updateHomeSummaryFromGrid();
+                        appendLog("Seat " + held.seatId() + " held until " + java.time.Instant.ofEpochMilli(held.expiresAt()));
+                    } else if (reply instanceof HoldRejectedReply rejected) {
+                        btnHold.setEnabled(false);
+                        NoticeDialog.show(this, "Seat hold rejected", rejected.message(), NoticeDialog.Kind.WARNING);
+                    }
+                });
+            return;
+        }
+        sendRequestAsync(new HoldSeatsRequest(tcpClient.nextRequestId(), showId, seats, 120),
+            "HOLD_SEATS", () -> btnHold.setEnabled(true), reply -> {
+                if (reply instanceof HoldSeatsOkReply held) {
+                    activeHoldIds.clear();
+                    activeHeldSeats.clear();
+                    activeHoldIds.addAll(held.holdIds());
+                    activeHeldSeats.addAll(held.seatIds());
+                    activeHoldId = held.holdIds().isEmpty() ? null : held.holdIds().get(0);
+                    activeHoldSeatId = held.seatIds().isEmpty() ? null : held.seatIds().get(0);
                     activeHoldExpiresAt = held.expiresAt();
-                    seatHoldExpiries.put(held.seatId(), held.expiresAt());
-                    seatGridPanel.updateSingleSeat(SeatView.held(held.seatId(), userId));
+                    for (String seat : held.seatIds()) {
+                        seatHoldExpiries.put(seat, held.expiresAt());
+                        seatGridPanel.updateSingleSeat(SeatView.held(seat, userId));
+                    }
                     btnConfirmHold.setEnabled(true);
                     btnReleaseHold.setEnabled(true);
                     updateHoldCountdown();
+                    onSeatSelectionChanged(activeHoldSeatId);
                     updateHomeSummaryFromGrid();
-                    appendLog("Seat " + held.seatId() + " held until " + java.time.Instant.ofEpochMilli(held.expiresAt()));
+                    appendLog("Held " + String.join(", ", held.seatIds()) + " together.");
                 } else if (reply instanceof HoldRejectedReply rejected) {
-                    btnHold.setEnabled(false);
-                    JOptionPane.showMessageDialog(this, rejected.message(), "Seat Hold Rejected", JOptionPane.WARNING_MESSAGE);
+                    btnHold.setEnabled(true);
+                    NoticeDialog.show(this, "Seat hold rejected", rejected.message(), NoticeDialog.Kind.WARNING);
                 }
             });
     }
 
+    private void rememberHold(String holdId, String seatId, long expiresAt) {
+        activeHoldIds.clear();
+        activeHeldSeats.clear();
+        activeHoldIds.add(holdId);
+        activeHeldSeats.add(seatId);
+        activeHoldId = holdId;
+        activeHoldSeatId = seatId;
+        activeHoldExpiresAt = expiresAt;
+        seatHoldExpiries.put(seatId, expiresAt);
+    }
+
     private void confirmActiveHold() {
-        String holdId = activeHoldId;
-        if (holdId == null || activeHoldExpiresAt <= System.currentTimeMillis()) {
+        java.util.List<String> holdIds = java.util.List.copyOf(activeHoldIds);
+        if (holdIds.isEmpty() || activeHoldExpiresAt <= System.currentTimeMillis()) {
             updateHoldCountdown();
             return;
         }
         btnConfirmHold.setEnabled(false);
-        sendRequestAsync(new ConfirmHoldRequest(tcpClient.nextRequestId(), holdId, UUID.randomUUID().toString()),
-            "CONFIRM_HOLD", () -> btnConfirmHold.setEnabled(activeHoldId != null), reply -> {
-                if (reply instanceof ConfirmOkReply confirmed) {
-                    userBookings.put(confirmed.seatId(), confirmed.bookingId());
-                    seatGridPanel.updateSingleSeat(SeatView.booked(confirmed.seatId(), userId));
-                    clearActiveHold();
-                    requestBookingHistory();
-                    updateHomeSummaryFromGrid();
-                    JOptionPane.showMessageDialog(this,
-                        "Booking confirmed. Ticket ID: " + confirmed.ticketId(),
-                        "Booking Confirmed", JOptionPane.INFORMATION_MESSAGE);
-                } else if (reply instanceof ConfirmRejectedReply rejected) {
-                    clearActiveHold();
-                    JOptionPane.showMessageDialog(this, rejected.message(),
-                        "Hold Confirmation Rejected", JOptionPane.WARNING_MESSAGE);
+        networkExecutor.execute(() -> {
+            int confirmed = 0;
+            for (String holdId : holdIds) {
+                try {
+                    ReplyMessage reply = tcpClient.sendRequest(new ConfirmHoldRequest(
+                        tcpClient.nextRequestId(), holdId, UUID.randomUUID().toString())).get(5, TimeUnit.SECONDS);
+                    if (reply instanceof ConfirmOkReply ok) {
+                        confirmed++;
+                        SwingUtilities.invokeLater(() -> {
+                            userBookings.put(ok.seatId(), ok.bookingId());
+                            seatGridPanel.updateSingleSeat(SeatView.booked(ok.seatId(), userId));
+                        });
+                    } else if (reply instanceof ConfirmRejectedReply rejected) {
+                        SwingUtilities.invokeLater(() -> {
+                            clearActiveHold();
+                            NoticeDialog.show(this, "Could not confirm the hold", rejected.message(), NoticeDialog.Kind.WARNING);
+                        });
+                        return;
+                    }
+                } catch (Exception failure) {
+                    SwingUtilities.invokeLater(() -> btnConfirmHold.setEnabled(activeHoldId != null));
+                    return;
                 }
+            }
+            int booked = confirmed;
+            SwingUtilities.invokeLater(() -> {
+                clearActiveHold();
+                requestBookingHistory();
+                updateHomeSummaryFromGrid();
+                NoticeDialog.show(this, "Booking confirmed",
+                    booked == 1 ? "Your seat is booked. Find it under My tickets."
+                        : booked + " seats are booked. Find them under My tickets.",
+                    NoticeDialog.Kind.SUCCESS);
             });
+        });
     }
 
     private void releaseActiveHold() {
-        String holdId = activeHoldId;
-        if (holdId == null) {
+        java.util.List<String> holdIds = java.util.List.copyOf(activeHoldIds);
+        if (holdIds.isEmpty()) {
             return;
         }
         btnReleaseHold.setEnabled(false);
-        sendRequestAsync(new ReleaseHoldRequest(tcpClient.nextRequestId(), holdId), "RELEASE_HOLD",
-            () -> btnReleaseHold.setEnabled(activeHoldId != null), reply -> {
-                if (reply instanceof HoldReleasedOkReply) {
-                    clearActiveHold();
-                    requestSeatSnapshot();
+        networkExecutor.execute(() -> {
+            for (String holdId : holdIds) {
+                try {
+                    tcpClient.sendRequest(new ReleaseHoldRequest(tcpClient.nextRequestId(), holdId)).get(5, TimeUnit.SECONDS);
+                } catch (Exception failure) {
+                    SwingUtilities.invokeLater(() -> btnReleaseHold.setEnabled(activeHoldId != null));
+                    return;
                 }
+            }
+            SwingUtilities.invokeLater(() -> {
+                clearActiveHold();
+                requestSeatSnapshot();
             });
+        });
     }
 
     private void clearActiveHold() {
-        if (activeHoldSeatId != null) {
-            seatHoldExpiries.remove(activeHoldSeatId);
+        for (String heldSeat : activeHeldSeats) {
+            seatHoldExpiries.remove(heldSeat);
         }
+        activeHeldSeats.clear();
+        activeHoldIds.clear();
         activeHoldId = null;
         activeHoldSeatId = null;
         activeHoldExpiresAt = 0;
         lblHoldCountdown.setText("No active seat hold");
         btnConfirmHold.setEnabled(false);
         btnReleaseHold.setEnabled(false);
+        if (seatGridPanel != null) {
+            onSeatSelectionChanged(seatGridPanel.getSelectedSeatId());
+        }
     }
 
     private void updateHoldCountdown() {
@@ -1875,11 +2220,10 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         String bookingId = (seatId != null) ? userBookings.get(seatId) : null;
 
         if (bookingId == null) {
-            bookingId = JOptionPane.showInputDialog(this, "Enter Booking ID to cancel:", "Cancel Booking", JOptionPane.QUESTION_MESSAGE);
-            if (bookingId == null || bookingId.isBlank()) {
-                return;
-            }
-            bookingId = bookingId.trim();
+            NoticeDialog.show(this, "Cannot cancel",
+                "Select one of your booked seats. If it is missing, open My tickets and try again.",
+                NoticeDialog.Kind.INFO);
+            return;
         }
 
         CancelBookingRequest request = new CancelBookingRequest(tcpClient.nextRequestId(), bookingId);
@@ -1889,11 +2233,11 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     }
 
     private void performLogout() {
-        int confirm = JOptionPane.showConfirmDialog(this, "Are you sure you want to log out?", "Confirm Logout", JOptionPane.YES_NO_OPTION);
-        if (confirm != JOptionPane.YES_OPTION) {
+        if (!NoticeDialog.confirm(this, "Log out", "Are you sure you want to log out?", "Log out", "Stay")) {
             return;
         }
 
+        keepSession = false;
         btnLogout.setEnabled(false);
         networkExecutor.execute(() -> {
             try {
@@ -1969,9 +2313,16 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
 
     @Override
     public void onSeatSnapshot(SeatSnapshotReply reply) {
+        Long known = reconnectCoordinator.getLastKnownVersion(reply.showId());
+        if (known != null && reply.version() < known) {
+            return;
+        }
+        reconnectCoordinator.setSnapshotVersion(reply.showId(), reply.version());
         SwingUtilities.invokeLater(() -> {
             seatGridPanel.updateSeats(reply.seats());
-            lblSeatState.setText(reply.seats().isEmpty() ? "No seat data is available." : "Live seat availability");
+            lblSeatState.setText(reply.seats().isEmpty()
+                ? "No seats are available for this showtime."
+                : "Teal seats are open. Blue seats are already yours.");
             btnRefresh.setEnabled(true);
             updateHomeSummary(reply.seats());
             appendLog("Seat snapshot loaded: " + reply.seats().size() + " seats (Version " + reply.version() + ")");
@@ -1987,10 +2338,10 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
             updateHomeSummaryFromGrid();
             appendLog("SUCCESS: Seat " + reply.seatId() + " booked! Booking ID: " + reply.bookingId());
             onSeatSelectionChanged(seatGridPanel.getSelectedSeatId());
-            JOptionPane.showMessageDialog(this,
-                "Seat " + reply.seatId() + " successfully booked!\nBooking ID: " + reply.bookingId(),
-                "Booking Confirmed",
-                JOptionPane.INFORMATION_MESSAGE
+            NoticeDialog.show(this,
+                "Booking confirmed",
+                "Seat " + reply.seatId() + " is yours. Find it under My tickets.",
+                NoticeDialog.Kind.SUCCESS
             );
         });
     }
@@ -2000,11 +2351,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         SwingUtilities.invokeLater(() -> {
             appendLog("BOOKING REJECTED: " + reply.message() + " (" + reply.errorCode() + ")");
             btnBook.setEnabled(true);
-            JOptionPane.showMessageDialog(this,
-                reply.message(),
-                "Booking Failed (" + reply.errorCode() + ")",
-                JOptionPane.ERROR_MESSAGE
-            );
+            NoticeDialog.show(this, "Booking failed", reply.message(), NoticeDialog.Kind.ERROR);
         });
     }
 
@@ -2021,10 +2368,10 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
             updateHomeSummaryFromGrid();
             appendLog("SUCCESS: Booking " + reply.bookingId() + " cancelled successfully.");
             onSeatSelectionChanged(seatGridPanel.getSelectedSeatId());
-            JOptionPane.showMessageDialog(this,
-                "Booking " + reply.bookingId() + " has been cancelled.",
-                "Cancellation Confirmed",
-                JOptionPane.INFORMATION_MESSAGE
+            NoticeDialog.show(this,
+                "Booking cancelled",
+                reply.seatId() == null ? "Your booking was cancelled." : "Seat " + reply.seatId() + " is available again.",
+                NoticeDialog.Kind.SUCCESS
             );
         });
     }
@@ -2034,16 +2381,15 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         SwingUtilities.invokeLater(() -> {
             appendLog("CANCEL REJECTED: " + reply.message() + " (" + reply.errorCode() + ")");
             btnCancel.setEnabled(true);
-            JOptionPane.showMessageDialog(this,
-                reply.message(),
-                "Cancellation Failed (" + reply.errorCode() + ")",
-                JOptionPane.ERROR_MESSAGE
-            );
+            NoticeDialog.show(this, "Could not cancel", reply.message(), NoticeDialog.Kind.ERROR);
         });
     }
 
     @Override
     public void onSeatUpdated(SeatUpdatedEvent event) {
+        if (!acceptLiveEvent(event.showId(), event.version())) {
+            return;
+        }
         SwingUtilities.invokeLater(() -> {
             seatGridPanel.updateSeats(event.seats());
             event.seats().stream()
@@ -2057,12 +2403,12 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
 
     @Override
     public void onSeatHeld(SeatHeldEvent event) {
-        if (!showId.equals(event.showId())) {
+        if (!acceptLiveEvent(event.showId(), event.version())) {
             return;
         }
         SwingUtilities.invokeLater(() -> {
             seatHoldExpiries.put(event.seatId(), event.expiresAt());
-            String holder = event.holdId().equals(activeHoldId) ? userId : null;
+            String holder = activeHoldIds.contains(event.holdId()) ? userId : null;
             seatGridPanel.updateSingleSeat(SeatView.held(event.seatId(), holder));
             updateHomeSummaryFromGrid();
             onSeatSelectionChanged(seatGridPanel.getSelectedSeatId());
@@ -2071,13 +2417,13 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
 
     @Override
     public void onSeatReleased(SeatReleasedEvent event) {
-        if (!showId.equals(event.showId())) {
+        if (!acceptLiveEvent(event.showId(), event.version())) {
             return;
         }
         SwingUtilities.invokeLater(() -> {
             seatHoldExpiries.remove(event.seatId());
             seatGridPanel.updateSingleSeat(SeatView.available(event.seatId()));
-            if (event.holdId().equals(activeHoldId)) {
+            if (activeHoldIds.remove(event.holdId()) && activeHoldIds.isEmpty()) {
                 clearActiveHold();
             }
             updateHomeSummaryFromGrid();
@@ -2091,22 +2437,37 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
             return;
         }
         SwingUtilities.invokeLater(() -> {
-            activeHoldId = event.holdId();
-            activeHoldSeatId = event.seatId();
-            activeHoldExpiresAt = event.expiresAt();
-            seatHoldExpiries.put(event.seatId(), event.expiresAt());
+            rememberHold(event.holdId(), event.seatId(), event.expiresAt());
             seatGridPanel.updateSingleSeat(SeatView.held(event.seatId(), userId));
             updateHoldCountdown();
             updateHomeSummaryFromGrid();
-            JOptionPane.showMessageDialog(this,
+            NoticeDialog.show(this, "A seat is ready",
                 "A seat is available for you: " + event.seatId() + ". Confirm before the offer expires.",
-                "Waitlist Offer", JOptionPane.INFORMATION_MESSAGE);
+                NoticeDialog.Kind.SUCCESS);
         });
     }
 
     @Override
     public void onShowUpdated(ShowUpdatedEvent event) {
-        SwingUtilities.invokeLater(this::requestShows);
+        ReconnectCoordinator.EventAction action = reconnectCoordinator.evaluateEventVersion(event.showId(), event.version());
+        if (action == ReconnectCoordinator.EventAction.GAP_RESYNC_REQUIRED && showId.equals(event.showId())) {
+            requestSeatSnapshot();
+        }
+        if (action != ReconnectCoordinator.EventAction.DISCARD_STALE) {
+            SwingUtilities.invokeLater(this::requestShows);
+        }
+    }
+
+    private boolean acceptLiveEvent(String eventShowId, long version) {
+        if (eventShowId == null || !eventShowId.equals(showId)) {
+            return false;
+        }
+        ReconnectCoordinator.EventAction action = reconnectCoordinator.evaluateEventVersion(eventShowId, version);
+        if (action == ReconnectCoordinator.EventAction.GAP_RESYNC_REQUIRED) {
+            requestSeatSnapshot();
+            return false;
+        }
+        return action == ReconnectCoordinator.EventAction.APPLY;
     }
 
     @Override
@@ -2138,8 +2499,8 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
         lblHomeBooked.setText(Long.toString(booked));
         lblHomeHeld.setText(Long.toString(held));
         lblHomeStatus.setText(seats.isEmpty()
-            ? "No seat availability was returned by the server."
-            : "Availability updated from the server.");
+            ? "Seat counts are not available yet."
+            : "Seat counts are up to date.");
     }
 
     private void updateHomeSummaryFromGrid() {
@@ -2156,8 +2517,7 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     @Override
     public void onConnected() {
         SwingUtilities.invokeLater(() -> {
-            String transport = tcpClient.isTlsEnabled() ? " (TLS 1.3)" : " (plaintext)";
-            lblConnectionStatus.setText("● Connected: " + tcpClient.getHost() + ":" + tcpClient.getPort() + transport);
+            lblConnectionStatus.setText(connectionLabel());
             lblConnectionStatus.setForeground(new Color(46, 125, 50));
             onSeatSelectionChanged(seatGridPanel.getSelectedSeatId());
         });
@@ -2166,15 +2526,53 @@ public final class BookingFrame extends JFrame implements ClientMessageHandler.L
     @Override
     public void onDisconnected(String reason) {
         SwingUtilities.invokeLater(() -> {
-            lblConnectionStatus.setText("● Disconnected: " + reason);
+            lblConnectionStatus.setText("● Not connected");
             lblConnectionStatus.setForeground(Color.RED);
-            lblSeatState.setText("Connection unavailable. Reconnect to load seats.");
+            lblSeatState.setText(keepSession && sessionPassword != null
+                ? "Connection dropped. Signing you back in."
+                : "Connection unavailable. Reconnect to load seats.");
             lblHomeStatus.setText("Disconnected. Reconnect to refresh availability.");
             btnBook.setEnabled(false);
             btnCancel.setEnabled(false);
             btnRefresh.setEnabled(false);
             appendLog("[DISCONNECT] " + reason);
         });
+        beginSessionRecovery();
+    }
+
+    private void beginSessionRecovery() {
+        if (!keepSession || sessionPassword == null || tcpClient == null) {
+            return;
+        }
+        if (!recoveryRunning.compareAndSet(false, true)) {
+            return;
+        }
+        Thread recovery = new Thread(() -> {
+            try {
+                boolean restored = new SessionRecovery().recover(
+                    tcpClient, reconnectCoordinator, username, sessionPassword);
+                SwingUtilities.invokeLater(() -> {
+                    if (!keepSession) {
+                        return;
+                    }
+                    if (restored) {
+                        lblConnectionStatus.setText(connectionLabel());
+                        lblConnectionStatus.setForeground(new Color(46, 125, 50));
+                        lblSeatState.setText("Signed back in. Seats are refreshing.");
+                        appendLog("Connection restored.");
+                        requestSeatSnapshot();
+                        requestBookingHistory();
+                    } else {
+                        lblSeatState.setText("Could not sign back in. Log in again.");
+                        appendLog("Reconnect stopped after several tries.");
+                    }
+                });
+            } finally {
+                recoveryRunning.set(false);
+            }
+        }, "seatsync-reconnect");
+        recovery.setDaemon(true);
+        recovery.start();
     }
 
     @Override

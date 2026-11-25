@@ -17,6 +17,7 @@ import com.seatsync.common.contracts.ClockService;
 import com.seatsync.common.contracts.HoldService;
 import com.seatsync.common.model.SeatHold;
 import com.seatsync.common.model.HoldResult;
+import com.seatsync.common.model.MultiHoldResult;
 import com.seatsync.common.model.ReleaseResult;
 import java.util.function.Supplier;
 import com.seatsync.common.contracts.WaitlistService;
@@ -53,7 +54,7 @@ public final class InMemoryReservationService implements ReservationService, Cat
     private final Map<String, Reservation> reservations = new HashMap<>();
     private final SeatEventPublisher events = new SeatEventPublisher();
     static final long MAX_HOLD_MS = 120_000;
-    static final long OFFER_MS = 30_000;
+    static final long OFFER_MS = 60_000;
     private static final int MAX_WAITLIST = 100;
     private final List<Consumer<WaitlistPromotedEvent>> offerListeners = new CopyOnWriteArrayList<>();
     private final ClockService clock;
@@ -71,14 +72,24 @@ public final class InMemoryReservationService implements ReservationService, Cat
         this.clock = clock;
         movies.put("MOVIE-01", new MovieDetails("MOVIE-01", "The Phantom of the Opera", "Classic Broadway musical", "Musical", 150));
         movies.put("MOVIE-02", new MovieDetails("MOVIE-02", "Les Mis\u00e9rables", "Musical drama", "Musical", 180));
+        movies.put("MOVIE-03", new MovieDetails("MOVIE-03", "The Lion King", "Family stage musical", "Musical", 130));
         var standard = new SeatTier("Standard", TierType.STANDARD, 2500, "Standard admission");
         var premium = new SeatTier("Premium", TierType.PREMIUM, 4000, "Premium admission");
+        var grand = new AuditoriumLayout("LAYOUT-01", "Orchestra Hall", 5, 8, 40, List.of(standard));
+        var main = new AuditoriumLayout("LAYOUT-02", "Main Hall", 10, 12, 120, List.of(standard, premium));
+        var family = new AuditoriumLayout("LAYOUT-03", "Family Hall", 5, 8, 40, List.of(standard));
         registerShow(new ShowDetails(ProtocolConstants.DEFAULT_SHOW_ID, "The Phantom of the Opera",
-            "Classic Broadway musical", "Musical", "2026-12-01T19:30:00Z", "2026-12-01T22:00:00Z", "Grand Stage",
-            new AuditoriumLayout("LAYOUT-01", "Orchestra Hall", 5, 8, 40, List.of(standard))));
+            "Classic Broadway musical", "Musical", "2026-12-01T19:30:00Z", "2026-12-01T22:00:00Z", "Grand Stage", grand));
         registerShow(new ShowDetails("SHOW-02", "Les Mis\u00e9rables", "Musical drama", "Musical",
-            "2026-12-02T20:00:00Z", "2026-12-02T23:00:00Z", "Main Hall",
-            new AuditoriumLayout("LAYOUT-02", "Main Hall", 10, 12, 120, List.of(standard, premium))));
+            "2026-12-02T20:00:00Z", "2026-12-02T23:00:00Z", "Main Hall", main));
+        registerShow(new ShowDetails("SHOW-11", "The Phantom of the Opera",
+            "Classic Broadway musical", "Musical", "2026-12-03T14:00:00Z", "2026-12-03T16:30:00Z", "Grand Stage", grand));
+        registerShow(new ShowDetails("SHOW-12", "Les Mis\u00e9rables", "Musical drama", "Musical",
+            "2026-12-04T19:00:00Z", "2026-12-04T22:00:00Z", "Main Hall", main));
+        registerShow(new ShowDetails("SHOW-13", "The Lion King", "Family stage musical", "Musical",
+            "2026-12-05T16:00:00Z", "2026-12-05T18:15:00Z", "Family Hall", family));
+        registerShow(new ShowDetails("SHOW-14", "The Lion King", "Family stage musical", "Musical",
+            "2026-12-06T18:30:00Z", "2026-12-06T20:45:00Z", "Family Hall", family));
     }
 
     public void registerShow(ShowDetails details) {
@@ -274,6 +285,50 @@ public final class InMemoryReservationService implements ReservationService, Cat
             }
             var hold = placeHold(user, show, seatId, Math.min(durationMs, MAX_HOLD_MS));
             return HoldResult.ok(hold.holdId(), showId, seatId, hold.expirationTimestamp(), "Seat held");
+        });
+    }
+
+    @Override
+    public MultiHoldResult holdSeats(String user, String showId, List<String> seatIds, long durationMs) {
+        return transaction(() -> {
+            if (user == null || user.isBlank()) {
+                return MultiHoldResult.rejected(showId, seatIds, ErrorCode.AUTH_REQUIRED, "Login required");
+            }
+            if (seatIds == null || seatIds.isEmpty() || seatIds.size() > 8) {
+                return MultiHoldResult.rejected(showId, seatIds, ErrorCode.INVALID_REQUEST_FORMAT,
+                    "Choose between 1 and 8 seats");
+            }
+            if (seatIds.stream().distinct().count() != seatIds.size()) {
+                return MultiHoldResult.rejected(showId, seatIds, ErrorCode.INVALID_REQUEST_FORMAT, "Duplicate seat");
+            }
+            if (durationMs <= 0) {
+                return MultiHoldResult.rejected(showId, seatIds, ErrorCode.INVALID_REQUEST_FORMAT, "Positive duration required");
+            }
+            var show = shows.get(showId);
+            if (show == null) {
+                return MultiHoldResult.rejected(showId, seatIds, ErrorCode.SHOW_NOT_FOUND, "Unknown show");
+            }
+            if (!show.enabled) {
+                return MultiHoldResult.rejected(showId, seatIds, ErrorCode.SHOW_DISABLED, "Show disabled");
+            }
+            for (String seatId : seatIds) {
+                var seat = show.seats.get(seatId);
+                if (seat == null) {
+                    return MultiHoldResult.rejected(showId, List.of(seatId), ErrorCode.SEAT_NOT_FOUND, "Unknown seat");
+                }
+                if (!seat.isAvailable()) {
+                    var code = seat.hold() == null ? ErrorCode.SEAT_ALREADY_BOOKED : ErrorCode.SEAT_ALREADY_HELD;
+                    return MultiHoldResult.rejected(showId, List.of(seatId), code, "Seat unavailable");
+                }
+            }
+            var holdIds = new java.util.ArrayList<String>();
+            long expiresAt = 0L;
+            for (String seatId : seatIds) {
+                var hold = placeHold(user, show, seatId, Math.min(durationMs, MAX_HOLD_MS));
+                holdIds.add(hold.holdId());
+                expiresAt = hold.expirationTimestamp();
+            }
+            return MultiHoldResult.ok(showId, seatIds, holdIds, expiresAt, "Seats held");
         });
     }
 

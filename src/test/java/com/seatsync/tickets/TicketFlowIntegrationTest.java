@@ -92,6 +92,23 @@ class TicketFlowIntegrationTest {
         assertEquals("TICKET_REPLY", ticketReply.path("type").asText());
         assertEquals(ticketId, ticketReply.path("ticket").path("ticketId").asText());
         assertEquals("USR-ALICE", ticketReply.path("ticket").path("userId").asText());
+        String hash = ticketReply.path("ticket").path("verificationHash").asText();
+
+        String verifyReq = "{\"type\":\"VERIFY_TICKET\",\"requestId\":\"req-verify\",\"ticketId\":\""
+            + ticketId + "\",\"verificationHash\":\"" + hash + "\"}";
+        processor.dispatch(aliceContext, verifyReq);
+        JsonNode verified = aliceContext.lastReply();
+        assertEquals("TICKET_VERIFIED", verified.path("type").asText());
+        assertTrue(verified.path("valid").asBoolean());
+
+        String badHash = "{\"type\":\"VERIFY_TICKET\",\"requestId\":\"req-verify-bad\",\"ticketId\":\""
+            + ticketId + "\",\"verificationHash\":\"0000\"}";
+        processor.dispatch(aliceContext, badHash);
+        assertFalse(aliceContext.lastReply().path("valid").asBoolean());
+
+        TestContext stranger = new TestContext("sess-2", "USR-BOB");
+        processor.dispatch(stranger, verifyReq);
+        assertEquals("TICKET_NOT_FOUND", stranger.lastReply().path("errorCode").asText());
 
         // 4. Cancel booking
         String cancelReq = "{\"type\":\"CANCEL_BOOKING\",\"requestId\":\"req-4\",\"bookingId\":\"" + bookingId + "\"}";

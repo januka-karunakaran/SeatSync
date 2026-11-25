@@ -2,6 +2,7 @@ package com.seatsync.common.contracts;
 
 import com.seatsync.common.model.BookingResult;
 import com.seatsync.common.model.HoldResult;
+import com.seatsync.common.model.MultiHoldResult;
 import com.seatsync.common.model.ReleaseResult;
 import com.seatsync.common.model.SeatHold;
 
@@ -23,6 +24,11 @@ public interface HoldService {
      * @return Result of the hold attempt
      */
     HoldResult holdSeat(String userId, String showId, String seatId, long durationMs);
+
+    /**
+     * Holds every listed seat or none of them. A failure leaves the show unchanged.
+     */
+    MultiHoldResult holdSeats(String userId, String showId, List<String> seatIds, long durationMs);
 
     /**
      * Releases an active hold prior to TTL expiration.

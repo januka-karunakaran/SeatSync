@@ -26,6 +26,7 @@ public class IdempotentRequestDispatcher implements RequestDispatcher {
     private static final Set<String> MUTATING_COMMANDS = Set.of(
         "BOOK_SEAT",
         "HOLD_SEAT",
+        "HOLD_SEATS",
         "CONFIRM_HOLD",
         "CANCEL_BOOKING",
         "RELEASE_HOLD",

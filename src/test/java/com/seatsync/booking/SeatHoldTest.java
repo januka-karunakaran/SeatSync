@@ -55,4 +55,23 @@ class SeatHoldTest {
             pool.shutdownNow();
         }
     }
+
+    @Test
+    void multiSeatHoldIsAllOrNothingAndShowScoped() {
+        var service = new InMemoryReservationService();
+        assertTrue(service.book("alice", "SHOW-01", "A2").success());
+        var rejected = service.holdSeats("bob", "SHOW-01", java.util.List.of("A1", "A2"), 120_000);
+        assertFalse(rejected.success());
+        assertEquals(SeatStatus.AVAILABLE, service.snapshot("SHOW-01").seats().stream()
+            .filter(seat -> seat.seatId().equals("A1")).findFirst().orElseThrow().status());
+
+        var held = service.holdSeats("bob", "SHOW-01", java.util.List.of("B1", "B2"), 120_000);
+        assertTrue(held.success());
+        assertEquals(2, held.holdIds().size());
+        assertEquals(SeatStatus.HELD, service.snapshot("SHOW-01").seats().stream()
+            .filter(seat -> seat.seatId().equals("B1")).findFirst().orElseThrow().status());
+        assertEquals(SeatStatus.AVAILABLE, service.snapshot("SHOW-11").seats().stream()
+            .filter(seat -> seat.seatId().equals("B1")).findFirst().orElseThrow().status());
+        assertEquals(6, service.getShows().size());
+    }
 }

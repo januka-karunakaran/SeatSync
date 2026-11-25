@@ -21,6 +21,7 @@ import com.seatsync.common.protocol.reply.ConfirmOkReply;
 import com.seatsync.common.protocol.reply.ConfirmRejectedReply;
 import com.seatsync.common.protocol.reply.ErrorReply;
 import com.seatsync.common.protocol.reply.HoldOkReply;
+import com.seatsync.common.protocol.reply.HoldSeatsOkReply;
 import com.seatsync.common.protocol.reply.HoldRejectedReply;
 import com.seatsync.common.protocol.reply.HoldReleasedOkReply;
 import com.seatsync.common.protocol.reply.HoldReleasedRejectedReply;
@@ -34,6 +35,7 @@ import com.seatsync.common.protocol.reply.ShowDetailsReply;
 import com.seatsync.common.protocol.reply.ShowListReply;
 import com.seatsync.common.protocol.reply.SubscribeOkReply;
 import com.seatsync.common.protocol.reply.TicketReply;
+import com.seatsync.common.protocol.reply.TicketVerifiedReply;
 import com.seatsync.common.protocol.reply.UnsubscribeOkReply;
 import com.seatsync.common.protocol.reply.WaitlistJoinedOkReply;
 import com.seatsync.common.protocol.reply.WaitlistJoinedRejectedReply;
@@ -55,6 +57,7 @@ import com.seatsync.common.protocol.request.GetShowsRequest;
 import com.seatsync.common.protocol.request.GetTicketRequest;
 import com.seatsync.common.protocol.request.GetWaitlistStatusRequest;
 import com.seatsync.common.protocol.request.HoldSeatRequest;
+import com.seatsync.common.protocol.request.HoldSeatsRequest;
 import com.seatsync.common.protocol.request.JoinWaitlistRequest;
 import com.seatsync.common.protocol.request.LeaveWaitlistRequest;
 import com.seatsync.common.protocol.request.LoginRequest;
@@ -62,6 +65,7 @@ import com.seatsync.common.protocol.request.LogoutRequest;
 import com.seatsync.common.protocol.request.ReleaseHoldRequest;
 import com.seatsync.common.protocol.request.SubscribeEventsRequest;
 import com.seatsync.common.protocol.request.UnsubscribeEventsRequest;
+import com.seatsync.common.protocol.request.VerifyTicketRequest;
 
 /**
  * Root interface for all protocol messages exchanged over the TCP wire.
@@ -88,6 +92,7 @@ import com.seatsync.common.protocol.request.UnsubscribeEventsRequest;
 
     // V2 Requests: Holds
     @JsonSubTypes.Type(value = HoldSeatRequest.class, name = "HOLD_SEAT"),
+    @JsonSubTypes.Type(value = HoldSeatsRequest.class, name = "HOLD_SEATS"),
     @JsonSubTypes.Type(value = ReleaseHoldRequest.class, name = "RELEASE_HOLD"),
     @JsonSubTypes.Type(value = ConfirmHoldRequest.class, name = "CONFIRM_HOLD"),
 
@@ -98,6 +103,7 @@ import com.seatsync.common.protocol.request.UnsubscribeEventsRequest;
 
     // V2 Requests: Tickets & History
     @JsonSubTypes.Type(value = GetTicketRequest.class, name = "GET_TICKET"),
+    @JsonSubTypes.Type(value = VerifyTicketRequest.class, name = "VERIFY_TICKET"),
     @JsonSubTypes.Type(value = GetBookingHistoryRequest.class, name = "GET_BOOKING_HISTORY"),
 
     // V2 Requests: Admin
@@ -134,6 +140,7 @@ import com.seatsync.common.protocol.request.UnsubscribeEventsRequest;
 
     // V2 Replies: Holds
     @JsonSubTypes.Type(value = HoldOkReply.class, name = "HOLD_OK"),
+    @JsonSubTypes.Type(value = HoldSeatsOkReply.class, name = "HOLD_SEATS_OK"),
     @JsonSubTypes.Type(value = HoldRejectedReply.class, name = "HOLD_REJECTED"),
     @JsonSubTypes.Type(value = HoldReleasedOkReply.class, name = "HOLD_RELEASED_OK"),
     @JsonSubTypes.Type(value = HoldReleasedRejectedReply.class, name = "HOLD_RELEASED_REJECTED"),
@@ -148,6 +155,7 @@ import com.seatsync.common.protocol.request.UnsubscribeEventsRequest;
 
     // V2 Replies: Tickets & History
     @JsonSubTypes.Type(value = TicketReply.class, name = "TICKET_REPLY"),
+    @JsonSubTypes.Type(value = TicketVerifiedReply.class, name = "TICKET_VERIFIED"),
     @JsonSubTypes.Type(value = BookingHistoryReply.class, name = "BOOKING_HISTORY_REPLY"),
 
     // V2 Replies: Admin

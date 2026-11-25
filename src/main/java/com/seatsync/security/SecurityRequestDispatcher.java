@@ -62,6 +62,7 @@ public final class SecurityRequestDispatcher implements RequestDispatcher {
                 case "GET_SHOWS" -> Set.of("type", "requestId");
                 case "GET_SEATS", "GET_SHOW_DETAILS", "JOIN_WAITLIST", "LEAVE_WAITLIST", "GET_WAITLIST_STATUS" -> Set.of("type", "requestId", "showId");
                 case "HOLD_SEAT" -> Set.of("type", "requestId", "showId", "seatId", "holdDurationSeconds");
+                case "HOLD_SEATS" -> Set.of("type", "requestId", "showId", "seatIds", "holdDurationSeconds");
                 case "RELEASE_HOLD" -> Set.of("type", "requestId", "holdId");
                 case "CONFIRM_HOLD" -> Set.of("type", "requestId", "holdId", "idempotencyKey");
                 case "BOOK_SEAT" -> Set.of("type", "requestId", "showId", "seatId");
@@ -80,6 +81,7 @@ public final class SecurityRequestDispatcher implements RequestDispatcher {
                 case "SUBSCRIBE_EVENTS", "UNSUBSCRIBE_EVENTS" ->
                     Set.of("type", "requestId", "showId");
                 case "GET_TICKET" -> Set.of("type", "requestId", "ticketId");
+                case "VERIFY_TICKET" -> Set.of("type", "requestId", "ticketId", "verificationHash");
                 case "GET_BOOKING_HISTORY" -> Set.of("type", "requestId", "pageNumber", "pageSize");
                 default -> null;
             };

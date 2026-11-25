@@ -12,6 +12,7 @@ import com.seatsync.network.discovery.UdpDiscoveryProbe;
 import com.seatsync.security.tls.TlsContextFactory;
 import com.seatsync.ui.assets.ImageResourceManager;
 import com.seatsync.ui.components.ModernButton;
+import com.seatsync.ui.components.NoticeDialog;
 import com.seatsync.ui.components.RoundedPanel;
 import com.seatsync.ui.components.StatusBadge;
 import com.seatsync.ui.theme.SeatSyncTheme;
@@ -27,7 +28,6 @@ import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
-import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPasswordField;
 import javax.swing.JTextField;
@@ -140,7 +140,7 @@ public final class LoginFrame extends JFrame {
         heroHeadline.setAlignmentX(LEFT_ALIGNMENT);
 
         JLabel heroSubtitle = new JLabel(
-            "<html>Real-time seat reservations, synchronized across clients with microsecond precision. Select your favorite show and book instantly.</html>"
+            "<html>Pick a movie, choose a showtime, and reserve your seat. Everyone sees the same seats update live.</html>"
         );
         heroSubtitle.setFont(UIFonts.BODY);
         heroSubtitle.setForeground(new Color(0xD8, 0xD5, 0xE3));
@@ -153,11 +153,11 @@ public final class LoginFrame extends JFrame {
         highlightsPanel.setLayout(new BoxLayout(highlightsPanel, BoxLayout.Y_AXIS));
         highlightsPanel.setOpaque(false);
         highlightsPanel.setAlignmentX(LEFT_ALIGNMENT);
-        highlightsPanel.add(createFeatureItem("Non-blocking Java NIO 21 Server (16 KiB frame ceiling)"));
+        highlightsPanel.add(createFeatureItem("1   Browse movies now showing"));
         highlightsPanel.add(Box.createVerticalStrut(10));
-        highlightsPanel.add(createFeatureItem("Zero-configuration UDP LAN Discovery Probe"));
+        highlightsPanel.add(createFeatureItem("2   Pick a showtime"));
         highlightsPanel.add(Box.createVerticalStrut(10));
-        highlightsPanel.add(createFeatureItem("End-to-End TLS 1.3 Transport Security"));
+        highlightsPanel.add(createFeatureItem("3   Choose your seat and book"));
 
         heroContent.add(brandRow);
         heroContent.add(Box.createVerticalStrut(28));
@@ -168,7 +168,7 @@ public final class LoginFrame extends JFrame {
         heroContent.add(highlightsPanel);
         heroContent.add(Box.createVerticalGlue());
 
-        JLabel versionLabel = new JLabel("SeatSync v2.0 • Member 02 Network Engine");
+        JLabel versionLabel = new JLabel("SeatSync Cinema");
         versionLabel.setFont(UIFonts.CAPTION);
         versionLabel.setForeground(new Color(0xA9, 0x9A, 0xCD));
 
@@ -180,7 +180,7 @@ public final class LoginFrame extends JFrame {
         // RIGHT COLUMN: Clean, Elegant Login Card (FilmTIX Light Style)
         // -------------------------------------------------------------
         JPanel rightContainer = new JPanel(new BorderLayout());
-        rightContainer.setBackground(UIColors.SOFT_WHITE);
+        rightContainer.setBackground(UIColors.CANVAS);
         rightContainer.setBorder(BorderFactory.createEmptyBorder(26, 36, 26, 36));
 
         JPanel formCard = new RoundedPanel(UISpacing.RADIUS_LARGE, UIColors.PURE_WHITE, UIColors.LIGHT_BORDER, 1, true);
@@ -196,7 +196,7 @@ public final class LoginFrame extends JFrame {
         lblLoginTitle.setFont(UIFonts.TITLE_LARGE);
         lblLoginTitle.setForeground(UIColors.TEXT_DARK);
 
-        JLabel lblLoginSub = new JLabel("Connect to SeatSync server to manage and book cinema tickets");
+        JLabel lblLoginSub = new JLabel("Sign in, then follow the steps on the left");
         lblLoginSub.setFont(UIFonts.BODY_SMALL);
         lblLoginSub.setForeground(UIColors.TEXT_SECONDARY);
 
@@ -212,63 +212,27 @@ public final class LoginFrame extends JFrame {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.insets = new Insets(5, 0, 5, 0);
 
-        // Server Host & Port row
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.gridwidth = 2;
         gbc.weightx = 1.0;
-        JLabel lblEndpoint = new JLabel("Server Endpoint");
-        lblEndpoint.setFont(UIFonts.BODY_BOLD);
-        lblEndpoint.setForeground(UIColors.TEXT_DARK);
-        fieldsPanel.add(lblEndpoint, gbc);
 
-        gbc.gridy = 1;
-        JPanel endpointRow = new JPanel(new BorderLayout(8, 0));
-        endpointRow.setOpaque(false);
-        txtHost = createStyledTextField(defaultHost != null ? defaultHost : "127.0.0.1");
-        txtPort = createStyledTextField(String.valueOf(defaultPort > 0 ? defaultPort : ProtocolConstants.DEFAULT_PORT));
-        txtPort.setPreferredSize(new Dimension(80, 36));
-        endpointRow.add(txtHost, BorderLayout.CENTER);
-        endpointRow.add(txtPort, BorderLayout.EAST);
-        fieldsPanel.add(endpointRow, gbc);
-
-        // Connection Options (Discover + TLS)
-        gbc.gridy = 2;
-        JPanel connectionOptions = new JPanel(new BorderLayout(8, 0));
-        connectionOptions.setOpaque(false);
-        btnDiscover = new ModernButton("Discover Server", ModernButton.Variant.SECONDARY);
-        btnDiscover.setFont(UIFonts.custom(java.awt.Font.BOLD, 12));
-        btnDiscover.addActionListener(e -> discoverServers());
-        connectionOptions.add(btnDiscover, BorderLayout.WEST);
-
-        chkTls = new JCheckBox("Require TLS 1.3");
-        chkTls.setOpaque(false);
-        chkTls.setFont(UIFonts.BODY_SMALL);
-        chkTls.setForeground(UIColors.TEXT_MUTED);
-        chkTls.setToolTipText("Enable TLS 1.3 encryption (requires SEATSYNC_TLS_TRUSTSTORE environment variable)");
-        chkTls.addActionListener(event -> updateDiscoveredTransport());
-        connectionOptions.add(chkTls, BorderLayout.CENTER);
-        fieldsPanel.add(connectionOptions, gbc);
-
-        // Username
-        gbc.gridy = 3;
         JLabel lblUser = new JLabel("Username");
         lblUser.setFont(UIFonts.BODY_BOLD);
         lblUser.setForeground(UIColors.TEXT_DARK);
         fieldsPanel.add(lblUser, gbc);
 
-        gbc.gridy = 4;
+        gbc.gridy = 1;
         txtUsername = createStyledTextField("alice");
         fieldsPanel.add(txtUsername, gbc);
 
-        // Password
-        gbc.gridy = 5;
+        gbc.gridy = 2;
         JLabel lblPass = new JLabel("Password");
         lblPass.setFont(UIFonts.BODY_BOLD);
         lblPass.setForeground(UIColors.TEXT_DARK);
         fieldsPanel.add(lblPass, gbc);
 
-        gbc.gridy = 6;
+        gbc.gridy = 3;
         JPanel passwordRow = new JPanel(new BorderLayout(4, 0));
         passwordRow.setOpaque(false);
         txtPassword = new JPasswordField("", 15);
@@ -284,6 +248,63 @@ public final class LoginFrame extends JFrame {
         passwordRow.add(btnTogglePassword, BorderLayout.EAST);
         fieldsPanel.add(passwordRow, gbc);
 
+        JPanel advancedPanel = new JPanel(new GridBagLayout());
+        advancedPanel.setOpaque(false);
+        advancedPanel.setVisible(false);
+        GridBagConstraints advanced = new GridBagConstraints();
+        advanced.fill = GridBagConstraints.HORIZONTAL;
+        advanced.insets = new Insets(4, 0, 4, 0);
+        advanced.gridx = 0;
+        advanced.gridy = 0;
+        advanced.weightx = 1.0;
+        advanced.gridwidth = 2;
+
+        JLabel lblEndpoint = new JLabel("Cinema address");
+        lblEndpoint.setFont(UIFonts.BODY_BOLD);
+        lblEndpoint.setForeground(UIColors.TEXT_DARK);
+        advancedPanel.add(lblEndpoint, advanced);
+
+        advanced.gridy = 1;
+        JPanel endpointRow = new JPanel(new BorderLayout(8, 0));
+        endpointRow.setOpaque(false);
+        txtHost = createStyledTextField(defaultHost != null ? defaultHost : "127.0.0.1");
+        txtPort = createStyledTextField(String.valueOf(defaultPort > 0 ? defaultPort : ProtocolConstants.DEFAULT_PORT));
+        txtPort.setPreferredSize(new Dimension(80, 36));
+        endpointRow.add(txtHost, BorderLayout.CENTER);
+        endpointRow.add(txtPort, BorderLayout.EAST);
+        advancedPanel.add(endpointRow, advanced);
+
+        advanced.gridy = 2;
+        JPanel connectionOptions = new JPanel(new BorderLayout(8, 0));
+        connectionOptions.setOpaque(false);
+        btnDiscover = new ModernButton("Find cinema", ModernButton.Variant.SECONDARY);
+        btnDiscover.setFont(UIFonts.custom(java.awt.Font.BOLD, 12));
+        btnDiscover.addActionListener(e -> discoverServers());
+        connectionOptions.add(btnDiscover, BorderLayout.WEST);
+
+        chkTls = new JCheckBox("Use a secure connection");
+        chkTls.setOpaque(false);
+        chkTls.setFont(UIFonts.BODY_SMALL);
+        chkTls.setForeground(UIColors.TEXT_MUTED);
+        chkTls.setToolTipText("Turn this on only when this computer has been set up for a secure connection.");
+        chkTls.addActionListener(event -> updateDiscoveredTransport());
+        connectionOptions.add(chkTls, BorderLayout.CENTER);
+        advancedPanel.add(connectionOptions, advanced);
+
+        gbc.gridy = 4;
+        ModernButton btnAdvanced = new ModernButton("Connection settings", ModernButton.Variant.OUTLINE);
+        btnAdvanced.setFont(UIFonts.custom(java.awt.Font.BOLD, 12));
+        btnAdvanced.addActionListener(event -> {
+            boolean show = !advancedPanel.isVisible();
+            advancedPanel.setVisible(show);
+            btnAdvanced.setText(show ? "Hide connection settings" : "Connection settings");
+            fieldsPanel.revalidate();
+        });
+        fieldsPanel.add(btnAdvanced, gbc);
+
+        gbc.gridy = 5;
+        fieldsPanel.add(advancedPanel, gbc);
+
         formCard.add(fieldsPanel, BorderLayout.CENTER);
 
         // Form Footer: Submit button and status
@@ -291,14 +312,14 @@ public final class LoginFrame extends JFrame {
         footerPanel.setLayout(new BoxLayout(footerPanel, BoxLayout.Y_AXIS));
         footerPanel.setOpaque(false);
 
-        btnLogin = new ModernButton("Connect & Log In", ModernButton.Variant.PRIMARY);
+        btnLogin = new ModernButton("Log in", ModernButton.Variant.PRIMARY);
         btnLogin.setFont(UIFonts.BUTTON);
         btnLogin.setAlignmentX(CENTER_ALIGNMENT);
         btnLogin.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
         btnLogin.setPreferredSize(new Dimension(340, 44));
         btnLogin.addActionListener(e -> performLogin());
 
-        lblStatus = new JLabel("Ready to connect", SwingConstants.CENTER);
+        lblStatus = new JLabel("Enter your username and password", SwingConstants.CENTER);
         lblStatus.setFont(UIFonts.CAPTION);
         lblStatus.setForeground(UIColors.TEXT_SECONDARY);
         lblStatus.setAlignmentX(CENTER_ALIGNMENT);
@@ -338,7 +359,7 @@ public final class LoginFrame extends JFrame {
                 super.paintComponent(g);
                 Graphics2D g2 = (Graphics2D) g.create();
                 SeatSyncTheme.enableAntiAliasing(g2);
-                g2.setColor(UIColors.LAVENDER_PRIMARY);
+                g2.setColor(UIColors.ACCENT);
                 g2.fillOval(2, 5, 7, 7);
                 g2.dispose();
             }
@@ -364,10 +385,7 @@ public final class LoginFrame extends JFrame {
         tf.setFont(UIFonts.BODY);
         tf.setForeground(UIColors.TEXT_DARK);
         tf.setBackground(UIColors.PURE_WHITE);
-        tf.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(UIColors.LIGHT_BORDER, 1),
-            BorderFactory.createEmptyBorder(8, 12, 8, 12)
-        ));
+        tf.setBorder(new com.seatsync.ui.components.RoundedLineBorder(new Color(0xE7, 0xD5, 0xCC), 14, 8));
         tf.setPreferredSize(new Dimension(tf.getPreferredSize().width, 36));
     }
 
@@ -389,7 +407,7 @@ public final class LoginFrame extends JFrame {
         String password = new String(txtPassword.getPassword());
 
         if (host.isEmpty()) {
-            setStatus("Please provide a valid server host.", UIColors.ERROR_RED);
+            setStatus("Enter the cinema address in Connection settings.", UIColors.ERROR_RED);
             return;
         }
 
@@ -410,11 +428,11 @@ public final class LoginFrame extends JFrame {
         }
 
         if (discoveryRequiresTls && !chkTls.isSelected()) {
-            setStatus("Discovered server requires TLS 1.3. Plaintext connection is disabled.", UIColors.ERROR_RED);
+            setStatus("This cinema requires a secure connection. Turn it on in Connection settings.", UIColors.ERROR_RED);
             return;
         }
 
-        setStatus("Connecting to " + host + ":" + port + "...", UIColors.INFO_BLUE);
+        setStatus("Signing in...", UIColors.INFO_BLUE);
         setFormEnabled(false);
 
         boolean useTls = chkTls.isSelected();
@@ -433,7 +451,7 @@ public final class LoginFrame extends JFrame {
                     SwingUtilities.invokeLater(() -> {
                         setStatus("Login successful! Loading cinema...", UIColors.SUCCESS_GREEN);
                         dispose();
-                        BookingFrame bookingFrame = new BookingFrame(activeClient, ok.username(), ok.userId(), ProtocolConstants.DEFAULT_SHOW_ID, ok.role());
+                        BookingFrame bookingFrame = new BookingFrame(activeClient, ok.username(), ok.userId(), ProtocolConstants.DEFAULT_SHOW_ID, ok.role(), password);
                         bookingFrame.initialize();
                         bookingFrame.setVisible(true);
                     });
@@ -446,7 +464,7 @@ public final class LoginFrame extends JFrame {
                 } else {
                     activeClient.disconnect();
                     SwingUtilities.invokeLater(() -> {
-                        setStatus("Unexpected server response: " + reply.getType(), UIColors.ERROR_RED);
+                        setStatus("The cinema could not sign you in. Try again.", UIColors.ERROR_RED);
                         setFormEnabled(true);
                     });
                 }
@@ -457,9 +475,9 @@ public final class LoginFrame extends JFrame {
                 SwingUtilities.invokeLater(() -> {
                     String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                     if (useTls && msg.contains("SEATSYNC_TLS_TRUSTSTORE")) {
-                        setStatus("TLS truststore missing. Uncheck 'Require TLS 1.3' for standard local connection.", UIColors.ERROR_RED);
+                        setStatus("Secure connection is not set up on this computer. Turn it off in Connection settings.", UIColors.ERROR_RED);
                     } else {
-                        setStatus((useTls ? "Secure connection/login failed: " : "Connection/login failed: ") + msg, UIColors.ERROR_RED);
+                        setStatus(useTls ? "Could not sign in over a secure connection." : "Could not sign in. Check your details and try again.", UIColors.ERROR_RED);
                     }
                     setFormEnabled(true);
                 });
@@ -472,7 +490,7 @@ public final class LoginFrame extends JFrame {
 
     private void discoverServers() {
         btnDiscover.setEnabled(false);
-        setStatus("Searching for SeatSync servers on the local network...", UIColors.INFO_BLUE);
+        setStatus("Looking for a cinema on this network...", UIColors.INFO_BLUE);
         Thread discoveryThread = new Thread(() -> {
             try {
                 List<DiscoveryResponse> discovered = UdpDiscoveryProbe.discoverAll(
@@ -480,24 +498,21 @@ public final class LoginFrame extends JFrame {
                 SwingUtilities.invokeLater(() -> {
                     btnDiscover.setEnabled(true);
                     if (discovered.isEmpty()) {
-                        setStatus("No server discovered. Enter its address and port manually.", UIColors.ERROR_RED);
+                        setStatus("No cinema was found nearby. Enter the address in Connection settings.", UIColors.ERROR_RED);
                         return;
                     }
                     String[] choices = discovered.stream()
-                        .map(server -> server.serverIp() + ":" + server.tcpPort()
-                            + (server.tlsRequired() ? " (TLS required, port " + server.tlsPort() + ")" : " (TLS optional)"))
+                        .map(server -> "Cinema at " + server.serverIp() + (server.tlsRequired() ? " (secure)" : ""))
                         .toArray(String[]::new);
-                    Object choice = JOptionPane.showInputDialog(this,
-                        "Select a discovered server:", "SeatSync Server Discovery",
-                        JOptionPane.QUESTION_MESSAGE, null, choices, choices[0]);
+                    String choice = NoticeDialog.choose(this, "Find a cinema", "Choose a cinema.", choices);
                     if (choice == null) {
-                        setStatus("Discovery complete. You can enter an address manually.", UIColors.TEXT_SECONDARY);
+                        setStatus("You can enter the cinema address in Connection settings.", UIColors.TEXT_SECONDARY);
                         return;
                     }
                     int index = java.util.Arrays.asList(choices).indexOf(choice.toString());
                     DiscoveryResponse selected = discovered.get(index);
                     if (selected.tlsRequired() && (selected.tlsPort() < 1 || selected.tlsPort() > 65535)) {
-                        setStatus("Discovered server requires TLS but advertised an invalid TLS port.", UIColors.ERROR_RED);
+                        setStatus("This cinema's secure connection is not available. Try another cinema.", UIColors.ERROR_RED);
                         return;
                     }
                     txtHost.setText(selected.serverIp());
@@ -508,13 +523,14 @@ public final class LoginFrame extends JFrame {
                     chkTls.setSelected(discoveryRequiresTls);
                     chkTls.setEnabled(!discoveryRequiresTls);
                     updateDiscoveredTransport();
-                    setStatus("Selected " + selected.serverIp() + ":" + txtPort.getText()
-                        + (discoveryRequiresTls ? " (TLS 1.3 required)" : ""), UIColors.SUCCESS_GREEN);
+                    setStatus(discoveryRequiresTls
+                        ? "Cinema found. A secure connection will be used."
+                        : "Cinema found. You can log in.", UIColors.SUCCESS_GREEN);
                 });
             } catch (IOException e) {
                 SwingUtilities.invokeLater(() -> {
                     btnDiscover.setEnabled(true);
-                    setStatus("Server discovery failed: " + e.getMessage(), UIColors.ERROR_RED);
+                    setStatus("Could not look for a cinema. Enter the address in Connection settings.", UIColors.ERROR_RED);
                 });
             }
         }, "seatsync-udp-discovery");

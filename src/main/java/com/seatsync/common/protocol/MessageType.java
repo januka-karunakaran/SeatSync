@@ -18,6 +18,7 @@ public enum MessageType {
 
     // V2 Client Requests: Two-Phase Seat Holds
     HOLD_SEAT,
+    HOLD_SEATS,
     RELEASE_HOLD,
     CONFIRM_HOLD,
 
@@ -28,6 +29,7 @@ public enum MessageType {
 
     // V2 Client Requests: Tickets & History
     GET_TICKET,
+    VERIFY_TICKET,
     GET_BOOKING_HISTORY,
 
     // V2 Client Requests: Admin & Governance
@@ -64,6 +66,7 @@ public enum MessageType {
 
     // V2 Server Replies: Holds
     HOLD_OK,
+    HOLD_SEATS_OK,
     HOLD_REJECTED,
     HOLD_RELEASED_OK,
     HOLD_RELEASED_REJECTED,
@@ -78,6 +81,7 @@ public enum MessageType {
 
     // V2 Server Replies: Tickets & History
     TICKET_REPLY,
+    TICKET_VERIFIED,
     BOOKING_HISTORY_REPLY,
 
     // V2 Server Replies: Admin

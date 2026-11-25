@@ -6,6 +6,9 @@ import com.seatsync.ui.theme.UIColors;
 import com.seatsync.ui.theme.UIFonts;
 import com.seatsync.ui.theme.UISpacing;
 
+import javax.swing.BorderFactory;
+import javax.swing.plaf.basic.BasicButtonUI;
+
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Cursor;
@@ -45,7 +48,7 @@ public class ModernButton extends ThemedButton {
     public ModernButton(String text, Variant variant) {
         super(text);
         this.variant = variant;
-        this.cornerRadius = UISpacing.RADIUS_MEDIUM;
+        this.cornerRadius = 18;
         setFont(UIFonts.BUTTON);
         setFocusPainted(false);
         setBorderPainted(false);
@@ -53,6 +56,7 @@ public class ModernButton extends ThemedButton {
         setOpaque(false);
         setCursor(new Cursor(Cursor.HAND_CURSOR));
         setMargin(new Insets(8, 18, 8, 18));
+        keepPillChrome();
 
         addMouseListener(new MouseAdapter() {
             @Override
@@ -103,6 +107,25 @@ public class ModernButton extends ThemedButton {
     }
 
     @Override
+    public void setEnabled(boolean enabled) {
+        super.setEnabled(enabled);
+        keepPillChrome();
+    }
+
+    /**
+     * ThemedButton paints a square system border whenever enabled state changes.
+     * Put the pill chrome back so disabled actions stay rounded.
+     */
+    private void keepPillChrome() {
+        setUI(new BasicButtonUI());
+        setOpaque(false);
+        setContentAreaFilled(false);
+        setBorderPainted(false);
+        setFocusPainted(false);
+        setBorder(BorderFactory.createEmptyBorder(8, 18, 8, 18));
+    }
+
+    @Override
     public Dimension getPreferredSize() {
         Dimension size = super.getPreferredSize();
         // Ensure comfortable modern touch target height
@@ -122,23 +145,21 @@ public class ModernButton extends ThemedButton {
         Color border = null;
 
         if (!isEnabled()) {
-            bg = new Color(0xEE, 0xEE, 0xF2);
-            fg = new Color(0x9E, 0x9D, 0xA8);
-            border = new Color(0xDC, 0xDA, 0xE4);
+            bg = new Color(0xF4, 0xEE, 0xE8);
+            fg = new Color(0xB4, 0xA6, 0x9E);
         } else if (customBg != null) {
             bg = isPressed ? customBg.darker() : (isHovered ? customBg.brighter() : customBg);
             fg = customFg != null ? customFg : UIColors.TEXT_WHITE;
         } else {
             switch (variant) {
                 case PRIMARY -> {
-                    bg = isPressed ? UIColors.LAVENDER_DARK : (isHovered ? UIColors.LAVENDER_HOVER : UIColors.LAVENDER_PRIMARY);
-                    fg = UIColors.DEEP_PURPLE;
-                    border = UIColors.LAVENDER_DARK;
+                    bg = isPressed ? UIColors.ACCENT_DARK : (isHovered ? new Color(0xBE, 0x12, 0x3C) : UIColors.ACCENT);
+                    fg = UIColors.PURE_WHITE;
                 }
                 case SECONDARY -> {
-                    bg = isPressed ? UIColors.CINEMATIC_BLACK : (isHovered ? UIColors.SURFACE_DARK : UIColors.DEEP_CHARCOAL);
-                    fg = UIColors.TEXT_LIGHT;
-                    border = UIColors.DARK_BORDER;
+                    bg = isPressed ? new Color(0xF3, 0xEE, 0xE8) : (isHovered ? new Color(0xFF, 0xFB, 0xF7) : UIColors.PURE_WHITE);
+                    fg = new Color(0x3F, 0x2A, 0x32);
+                    border = new Color(0xE7, 0xD5, 0xCC);
                 }
                 case ACCENT -> {
                     bg = isPressed ? UIColors.DEEP_PURPLE.darker() : (isHovered ? UIColors.ACCENT_PURPLE : UIColors.DEEP_PURPLE);

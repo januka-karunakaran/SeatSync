@@ -64,12 +64,18 @@ class NioTlsIntegrationTest {
     void setUp() throws IOException {
         sslBundle = TlsTestHelper.getOrCreateBundle();
 
-        // Dual transport mode: port 0 for dynamic plaintext port, port 0 for dynamic TLS port
-        ServerConfig config = ServerConfig.withDualTransport(
+        // Dual transport on free TCP and UDP ports so a server already on 8080/5051 is not probed.
+        ServerConfig config = new ServerConfig(
             ServerConfig.DEFAULT_HOST,
             0,
+            ProtocolConstants.MAX_FRAME_BYTES,
+            ServerConfig.DEFAULT_READ_BUFFER_BYTES,
+            TlsConfigMode.OPTIONAL,
             0,
-            sslBundle.serverContext()
+            sslBundle.serverContext(),
+            true,
+            0,
+            null
         );
 
         MockRequestDispatcher dispatcher = new MockRequestDispatcher();
@@ -213,6 +219,7 @@ class NioTlsIntegrationTest {
     void testDiscoveryAdvertisesTlsTransport() throws Exception {
         int discoveryPort = server.getDiscoveryListener().getPort();
         DiscoveryResponse optional = UdpDiscoveryProbe.probe("127.0.0.1", discoveryPort, 500).stream()
+            .filter(response -> response.tcpPort() == plainPort)
             .findFirst().orElseThrow();
 
         assertEquals(plainPort, optional.tcpPort());

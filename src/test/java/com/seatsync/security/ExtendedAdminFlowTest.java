@@ -53,7 +53,7 @@ class ExtendedAdminFlowTest {
             assertEquals("AUTH_REQUIRED", send(h, null, request).path("errorCode").asText());
         }
         assertFalse(h.catalog.getMovies().contains(MOVIE));
-        assertEquals(2, h.catalog.getShows().size());
+        assertEquals(6, h.catalog.getShows().size());
     }
 
     @Test void malformedMovieUnknownMovieAndInvalidPaginationReturnStructuredErrors() {

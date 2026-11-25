@@ -70,7 +70,7 @@ public class MovieCard extends RoundedPanel {
 
         JLabel genreLabel = new JLabel(movie.genre());
         genreLabel.setFont(UIFonts.BADGE);
-        genreLabel.setForeground(UIColors.DEEP_PURPLE);
+        genreLabel.setForeground(UIColors.ACCENT);
 
         JLabel durationLabel = new JLabel(movie.durationMinutes() + "m");
         durationLabel.setFont(UIFonts.BADGE);
@@ -122,7 +122,7 @@ public class MovieCard extends RoundedPanel {
         if (isSelected || isHovered) {
             Graphics2D g2 = (Graphics2D) g.create();
             SeatSyncTheme.enableAntiAliasing(g2);
-            g2.setColor(isSelected ? UIColors.MUTED_PURPLE : UIColors.LAVENDER_DARK);
+            g2.setColor(isSelected ? UIColors.ACCENT : new Color(0xE7, 0xD5, 0xCC));
             g2.setStroke(new BasicStroke(isSelected ? 2.5f : 1.5f));
             int offset = isSelected ? 1 : 0;
             g2.drawRoundRect(offset, offset, getWidth() - 1 - offset * 2, getHeight() - 1 - offset * 2,

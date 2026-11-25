@@ -18,13 +18,13 @@ class NavigationPanelTest {
             assertNotNull(panel.getNavigationButton(page));
         }
         assertEquals(Color.WHITE, panel.getNavigationButton("Home").getForeground());
-        assertEquals(new Color(21, 101, 192), panel.getNavigationButton("Home").getBackground());
+        assertEquals(new Color(0xE1, 0x1D, 0x48), panel.getNavigationButton("Home").getBackground());
 
         panel.navigate("Seat Map");
         assertEquals("Seat Map", panel.getSelectedPage());
         assertEquals(List.of("Seat Map"), selected);
-        assertEquals(new Color(21, 101, 192), panel.getNavigationButton("Seat Map").getBackground());
-        assertEquals(new Color(42, 55, 70), panel.getNavigationButton("Home").getBackground());
+        assertEquals(new Color(0xE1, 0x1D, 0x48), panel.getNavigationButton("Seat Map").getBackground());
+        assertEquals(new Color(0x2A, 0x22, 0x2C), panel.getNavigationButton("Home").getBackground());
         assertThrows(IllegalArgumentException.class, () -> panel.navigate("Unknown"));
     }
 }
